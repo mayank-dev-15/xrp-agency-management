@@ -148,6 +148,8 @@ const splitName = (fullName: string) => {
     return { firstName, lastName: lastName || '' };
 };
 
+import { LedgerSnapshotService } from './ledger';
+
 export const api = {
   auth: {
     login: async (username: string, password: string): Promise<User | null> => {
@@ -374,11 +376,10 @@ export const api = {
       await delay();
       const items = getItems<Project>(KEYS.PROJECTS);
       
-      // Req 1: Handle Budget separately from transactions
       if (project.totalBudget > 0) {
           project.budget = {
               total: project.totalBudget,
-              currency: 'Toman', // Default, should be dynamic in future
+              currency: 'Toman', 
               notes: `بودجه اولیه پروژه ${project.title}`,
               lastUpdated: new Date().toISOString()
           };
@@ -388,9 +389,6 @@ export const api = {
       saveItems(KEYS.PROJECTS, items);
       api.logs.add(userId, 'CREATE_PROJECT', `ایجاد پروژه ${project.title}`);
       
-      // FIXED (Req 1): Removed transaction creation logic
-      // No more pushing to KEYS.TRANSACTIONS here
-
       return project;
     },
     update: async (project: Project, userId: string) => {
@@ -479,6 +477,16 @@ export const api = {
   },
   categories: {
       getAll: async () => { await delay(); return getItems<TransactionCategoryItem>(KEYS.CATEGORIES); },
+      getUsageCount: async (id: string) => {
+          await delay();
+          const items = getItems<TransactionCategoryItem>(KEYS.CATEGORIES);
+          const transactions = getItems<Transaction>(KEYS.TRANSACTIONS);
+          // Check direct usage or usage of children
+          const childIds = items.filter(c => c.parentId === id).map(c => c.id);
+          const allRelatedIds = [id, ...childIds];
+          
+          return transactions.filter(t => t.categoryId && allRelatedIds.includes(t.categoryId)).length;
+      },
       create: async (category: TransactionCategoryItem, userId: string) => {
           const items = getItems<TransactionCategoryItem>(KEYS.CATEGORIES);
           items.push(category);
@@ -499,19 +507,30 @@ export const api = {
           await delay();
           let items = getItems<TransactionCategoryItem>(KEYS.CATEGORIES);
           const transactions = getItems<Transaction>(KEYS.TRANSACTIONS);
-          const isUsed = transactions.some(t => t.categoryId === id) || 
-                         transactions.some(t => {
-                             const transCat = items.find(c => c.id === t.categoryId);
-                             return transCat && transCat.parentId === id;
-                         });
+          // Recursively find children usage
+          const childIds = items.filter(c => c.parentId === id).map(c => c.id);
+          const allIdsToCheck = [id, ...childIds];
+          
+          const isUsed = transactions.some(t => t.categoryId && allIdsToCheck.includes(t.categoryId));
+          
           const targetCat = items.find(c => c.id === id);
           if (!targetCat) return 'deleted';
+          
           if (isUsed) {
-              targetCat.isActive = false;
+              // Archive
+              const idx = items.findIndex(c => c.id === id);
+              if (idx > -1) {
+                  items[idx].isActive = false; // Soft delete
+                  // Also archive children
+                  items.forEach(c => {
+                      if(c.parentId === id) c.isActive = false;
+                  });
+              }
               saveItems(KEYS.CATEGORIES, items);
               api.logs.add(userId, 'SOFT_DELETE_CATEGORY', `غیرفعال‌سازی دسته‌بندی ${targetCat.name} (استفاده شده)`);
               return 'soft_deleted';
           } else {
+              // Hard delete
               items = items.filter(c => c.id !== id && c.parentId !== id);
               saveItems(KEYS.CATEGORIES, items);
               api.logs.add(userId, 'DELETE_CATEGORY', `حذف کامل دسته‌بندی ${targetCat.name}`);
@@ -527,6 +546,7 @@ export const api = {
       items.push(transaction);
       saveItems(KEYS.TRANSACTIONS, items);
       api.logs.add(userId, 'CREATE_TRANSACTION', `تراکنش ${transaction.type} مبلغ ${transaction.amount}`);
+      await LedgerSnapshotService.markDirty(transaction);
       return transaction;
     },
     update: async (transaction: Transaction) => {
@@ -536,18 +556,22 @@ export const api = {
         if (idx > -1) {
             items[idx] = transaction;
             saveItems(KEYS.TRANSACTIONS, items);
+            await LedgerSnapshotService.markDirty(transaction);
         }
         return transaction;
     },
     delete: async (id: string, userId: string) => {
        await delay();
        let items = getItems<Transaction>(KEYS.TRANSACTIONS);
-       items = items.filter(t => t.id !== id);
-       saveItems(KEYS.TRANSACTIONS, items);
-       api.logs.add(userId, 'DELETE_TRANSACTION', `حذف تراکنش`);
+       const transaction = items.find(t => t.id === id);
+       if (transaction) {
+           items = items.filter(t => t.id !== id);
+           saveItems(KEYS.TRANSACTIONS, items);
+           api.logs.add(userId, 'DELETE_TRANSACTION', `حذف تراکنش`);
+           await LedgerSnapshotService.markDirty(transaction);
+       }
     }
   },
-  // ... (Other modules remain largely unchanged) ...
   tasks: {
       getAll: async () => { await delay(); return getItems<Task>(KEYS.TASKS); },
       create: async (task: Task) => {

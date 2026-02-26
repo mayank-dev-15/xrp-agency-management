@@ -1,15 +1,15 @@
 
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Transaction, TransactionType, FinanceCategory, TransactionStatus, PaymentMethodType, TransactionCategoryItem, Project, Client, Invoice, PartialPayment, UserRole, User } from '../types';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Paperclip, X, CheckCircle, Ban, Eye, XCircle, Trash2, AlertCircle, RotateCcw, Tag, Check, Lock, ShieldCheck, Link as LinkIcon, Briefcase, User as UserIcon, FileText, Calendar, CreditCard, MoreHorizontal, Clock, Search, Filter, ChevronDown, DollarSign, Wallet, CalendarRange, TrendingUp, TrendingDown, ChevronUp, Layers, List, ChevronLeft, Edit2, Save, CornerDownRight, Users } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Paperclip, X, CheckCircle, Ban, Eye, XCircle, Trash2, AlertCircle, RotateCcw, Tag, Check, Lock, ShieldCheck, Link as LinkIcon, Briefcase, User as UserIcon, FileText, Calendar, CreditCard, MoreHorizontal, Clock, Search, Filter, ChevronDown, DollarSign, Wallet, CalendarRange, TrendingUp, TrendingDown, ChevronUp, Layers, List, ChevronLeft, Edit2, Save, CornerDownRight, Users, Book } from 'lucide-react';
 import { Modal, CurrencyInput, JalaliDatePicker } from '../components/Shared';
 import { generateId, formatJalaliShort, formatCurrency, toPersianDigits, toEnglishDigits } from '../utils';
 import { useNavigate } from 'react-router-dom';
 
 const FinanceView = () => {
-  const { user, showToast, hasPermission } = useContext(AuthContext);
+  const { user, showToast, hasPermission, confirmAction } = useContext(AuthContext);
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<TransactionCategoryItem[]>([]); 
@@ -19,7 +19,8 @@ const FinanceView = () => {
   const [users, setUsers] = useState<User[]>([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<FinanceCategory>(FinanceCategory.Agency);
+  // 'Ledger' is now a valid tab
+  const [activeTab, setActiveTab] = useState<FinanceCategory | 'Ledger'>(FinanceCategory.Agency);
   const [loading, setLoading] = useState(true);
   
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -38,7 +39,6 @@ const FinanceView = () => {
   const [dateFilter, setDateFilter] = useState<'All' | 'Today' | 'Week' | 'Month' | 'Custom'>('All');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [advFilters, setAdvFilters] = useState({
       categoryId: '', projectId: '', clientId: '', invoiceId: '', minAmount: '', maxAmount: ''
   });
@@ -95,9 +95,6 @@ const FinanceView = () => {
       return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [restoreId, setRestoreId] = useState<string | null>(null);
-  const [approveId, setApproveId] = useState<string | null>(null);
   const [confirmSubmitApprove, setConfirmSubmitApprove] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -232,7 +229,9 @@ const FinanceView = () => {
       const currentYear = parseInt(toEnglishDigits(todayJalali.split('/')[0]));
       const currentMonth = parseInt(toEnglishDigits(todayJalali.split('/')[1]));
 
-      const base = transactions.filter(t => (t.category || FinanceCategory.Agency) === activeTab && t.status !== 'Cancelled');
+      // Summary applies only to Agency/Personal view, not Ledger (usually) but let's keep it scoped
+      const scope = activeTab === 'Ledger' ? FinanceCategory.Agency : activeTab;
+      const base = transactions.filter(t => (t.category || FinanceCategory.Agency) === scope && t.status !== 'Cancelled');
 
       let label = '';
       const filtered = base.filter(t => {
@@ -279,7 +278,20 @@ const FinanceView = () => {
 
   // --- LIST FILTERING ---
   const filteredTransactions = useMemo(() => {
-      let data = transactions.filter(t => (t.category || FinanceCategory.Agency) === activeTab);
+      let data = transactions;
+      
+      // Scoping based on Tab
+      if (activeTab === 'Ledger') {
+          // Ledger shows all (or default Agency, but let's show all for now or just Agency as typically Ledgers are for business)
+          // To be consistent with "General Ledger", we usually show Agency.
+          // However, we can show everything and add a column. Let's filter nothing for Ledger tab initially, 
+          // but maybe the user wants to see everything.
+          // Let's default to Agency for Ledger to avoid confusion, or All.
+          // Prompt says "Ledger independent... use same datasource". 
+          // Let's show ALL transactions in Ledger view.
+      } else {
+          data = data.filter(t => (t.category || FinanceCategory.Agency) === activeTab);
+      }
 
       if (searchQuery) {
           const q = toPersianDigits(searchQuery.toLowerCase());
@@ -358,7 +370,6 @@ const FinanceView = () => {
       });
 
       const groupArray = Object.values(groups).map(g => {
-          // Fix 1: Sort by date to ensure proper 1,2,3... sequence
           g.items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
           return {
               type: 'group' as const,
@@ -430,7 +441,6 @@ const FinanceView = () => {
       e.preventDefault();
       e.stopPropagation();
       
-      // FIX #5 GUARD: Check permissions
       if (!checkMutationPermission(t)) {
           showToast('این عملیات فقط برای مدیرکل مجاز است', 'error');
           return;
@@ -443,6 +453,9 @@ const FinanceView = () => {
               if (cat.parentId) setSelectedParentCat(cat.parentId);
               else setSelectedParentCat(cat.id);
           }
+      } else {
+          // Ensure empty category doesn't carry over stale state
+          setSelectedParentCat('');
       }
       setIsModalOpen(true);
   };
@@ -451,6 +464,7 @@ const FinanceView = () => {
       if (!formData.title?.trim()) return 'عنوان تراکنش الزامی است.';
       if (!formData.amount || formData.amount <= 0) return 'مبلغ تراکنش معتبر نیست.';
       if (!formData.date) return 'تاریخ تراکنش الزامی است.';
+      // REMOVED CATEGORY VALIDATION
       return null;
   };
 
@@ -461,41 +475,48 @@ const FinanceView = () => {
 
   const processTransaction = async () => {
       try {
-          if (formData.id) {
-              const updatedTx = { ...formData, updatedAt: new Date().toISOString() } as Transaction;
+          // IMPORTANT: If category is empty string, save as undefined/null
+          const finalData = { ...formData };
+          if (!finalData.categoryId) delete finalData.categoryId;
+
+          if (finalData.id) {
+              const updatedTx = { ...finalData, updatedAt: new Date().toISOString() } as Transaction;
               await api.transactions.update(updatedTx);
               setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
               showToast('تراکنش با موفقیت ویرایش شد', 'success');
           } else {
               let nextInstallmentNo: number | undefined = undefined;
-              if (formData.invoiceId && formData.type === TransactionType.Income) {
-                  const globalStats = getInvoiceGlobalStats(formData.invoiceId);
+              if (finalData.invoiceId && finalData.type === TransactionType.Income) {
+                  const globalStats = getInvoiceGlobalStats(finalData.invoiceId);
                   nextInstallmentNo = globalStats.maxNo + 1;
               }
 
               const maxSeq = transactions.reduce((max, t) => Math.max(max, t.sequenceNo || 0), 0);
               const nextSeq = maxSeq + 1;
 
+              // Use current active tab if not Ledger, otherwise default to Agency
+              const catScope = activeTab === 'Ledger' ? FinanceCategory.Agency : activeTab;
+
               const newTx = {
-                  ...formData, 
-                  category: activeTab, 
+                  ...finalData, 
+                  category: catScope, 
                   id: generateId(), 
                   sequenceNo: nextSeq,
-                  date: formData.date || new Date().toISOString(), 
+                  date: finalData.date || new Date().toISOString(), 
                   createdAt: new Date().toISOString(), 
-                  title: formData.title || 'تراکنش بدون عنوان', 
-                  description: formData.description || '', 
-                  status: formData.status || 'Registered', 
+                  title: finalData.title || 'تراکنش بدون عنوان', 
+                  description: finalData.description || '', 
+                  status: finalData.status || 'Registered', 
                   installmentNo: nextInstallmentNo,
-                  payeeId: formData.type === TransactionType.Expense ? formData.payeeId : undefined, 
-                  payeeName: formData.type === TransactionType.Expense ? formData.payeeName : undefined,
+                  payeeId: finalData.type === TransactionType.Expense ? finalData.payeeId : undefined, 
+                  payeeName: finalData.type === TransactionType.Expense ? finalData.payeeName : undefined,
               } as Transaction;
 
-              if (formData.invoiceId && formData.installmentTotal && formData.type === TransactionType.Income) {
-                  const inv = invoices.find(i => i.id === formData.invoiceId);
-                  if (inv && inv.plannedInstallmentsCount !== formData.installmentTotal) {
-                      await api.invoices.update({ ...inv, plannedInstallmentsCount: formData.installmentTotal }, user!.id);
-                      setInvoices(prev => prev.map(i => i.id === inv.id ? { ...inv, plannedInstallmentsCount: formData.installmentTotal } : i));
+              if (finalData.invoiceId && finalData.installmentTotal && finalData.type === TransactionType.Income) {
+                  const inv = invoices.find(i => i.id === finalData.invoiceId);
+                  if (inv && inv.plannedInstallmentsCount !== finalData.installmentTotal) {
+                      await api.invoices.update({ ...inv, plannedInstallmentsCount: finalData.installmentTotal }, user!.id);
+                      setInvoices(prev => prev.map(i => i.id === inv.id ? { ...inv, plannedInstallmentsCount: finalData.installmentTotal } : i));
                   }
               }
               await api.transactions.create(newTx, user!.id);
@@ -508,6 +529,7 @@ const FinanceView = () => {
 
   const handleSubmit = async (e: React.FormEvent) => { e.preventDefault(); const error = validateForm(); if (error) { showToast(error, 'error'); return; } await processTransaction(); };
 
+  // ... (Payment handlers remain same) ...
   const handleAddPayment = () => {
       if (!newPayment.amount || newPayment.amount <= 0) return;
       const inv = invoices.find(i => i.id === formData.invoiceId); if (!inv) return;
@@ -540,25 +562,70 @@ const FinanceView = () => {
       setFormData(prev => ({ ...prev, partialPayments: updatedPayments, amount: newFormTotal })); setEditingPaymentId(null); setEditPaymentData({});
   };
 
-  const initiateApprove = (e: React.MouseEvent, t: Transaction) => { e.preventDefault(); e.stopPropagation(); setApproveId(t.id); };
-  const performApprove = async () => { if (!approveId) return; const t = transactions.find(tx => tx.id === approveId); if (!t) return; try { const updatedT = { ...t, status: 'Approved' as TransactionStatus, updatedAt: new Date().toISOString() }; await api.transactions.update(updatedT); setTransactions(prev => prev.map(item => item.id === t.id ? updatedT : item)); showToast('تراکنش تایید نهایی شد', 'success'); } catch (err) { showToast('خطا', 'error'); } finally { setApproveId(null); } };
+  const initiateApprove = (e: React.MouseEvent, t: Transaction) => {
+      e.preventDefault();
+      e.stopPropagation();
+      confirmAction({
+          title: 'تایید نهایی تراکنش',
+          description: 'آیا از تایید نهایی این تراکنش اطمینان دارید؟ پس از تایید، تراکنش قفل خواهد شد.',
+          confirmText: 'تایید نهایی',
+          isDestructive: false,
+          onConfirm: async () => {
+              try {
+                  const updatedT = { ...t, status: 'Approved' as TransactionStatus, updatedAt: new Date().toISOString() };
+                  await api.transactions.update(updatedT);
+                  setTransactions(prev => prev.map(item => item.id === t.id ? updatedT : item));
+                  showToast('تراکنش تایید نهایی شد', 'success');
+              } catch (err) {
+                  showToast('خطا', 'error');
+              }
+          }
+      });
+  };
   
   const initiateCancel = (e: React.MouseEvent, t: Transaction) => { 
-      e.preventDefault(); 
-      e.stopPropagation(); 
+      e.preventDefault(); e.stopPropagation(); 
+      if (!checkMutationPermission(t)) { showToast('این عملیات فقط برای مدیرکل مجاز است', 'error'); return; }
+      if (t.status === 'Cancelled') return;
       
-      // FIX #5 GUARD: Check permissions
-      if (!checkMutationPermission(t)) {
-          showToast('این عملیات فقط برای مدیرکل مجاز است', 'error');
-          return;
-      }
-
-      if (t.status === 'Cancelled') return; 
-      setConfirmId(t.id); 
+      confirmAction({
+          title: 'لغو تراکنش',
+          description: 'آیا از لغو این تراکنش اطمینان دارید؟ تراکنش لغو شده در محاسبات مالی لحاظ نخواهد شد.',
+          confirmText: 'لغو تراکنش',
+          isDestructive: true,
+          onConfirm: async () => {
+              try {
+                  const updatedT = { ...t, status: 'Cancelled' as TransactionStatus, updatedAt: new Date().toISOString() };
+                  await api.transactions.update(updatedT);
+                  setTransactions(prev => prev.map(item => item.id === t.id ? updatedT : item));
+                  showToast('تراکنش لغو شد', 'success');
+              } catch (err) {
+                  showToast('خطا', 'error');
+              }
+          }
+      });
   };
-  const performCancel = async () => { if (!confirmId) return; const t = transactions.find(tx => tx.id === confirmId); if (!t) return; try { const updatedT = { ...t, status: 'Cancelled' as TransactionStatus, updatedAt: new Date().toISOString() }; await api.transactions.update(updatedT); setTransactions(prev => prev.map(item => item.id === t.id ? updatedT : item)); showToast('تراکنش لغو شد', 'success'); } catch (err) { showToast('خطا', 'error'); } finally { setConfirmId(null); } };
-  const initiateRestore = (e: React.MouseEvent, t: Transaction) => { e.preventDefault(); e.stopPropagation(); setRestoreId(t.id); };
-  const performRestore = async () => { if (!restoreId) return; const t = transactions.find(tx => tx.id === restoreId); if (!t) return; try { const updatedT = { ...t, status: 'Registered' as TransactionStatus, updatedAt: new Date().toISOString() }; await api.transactions.update(updatedT); setTransactions(prev => prev.map(item => item.id === t.id ? updatedT : item)); showToast('تراکنش بازگردانی شد', 'success'); } catch (err) { showToast('خطا', 'error'); } finally { setRestoreId(null); } };
+
+  const initiateRestore = (e: React.MouseEvent, t: Transaction) => {
+      e.preventDefault();
+      e.stopPropagation();
+      confirmAction({
+          title: 'بازگردانی تراکنش',
+          description: 'آیا می‌خواهید این تراکنش را به وضعیت فعال بازگردانید؟',
+          confirmText: 'بازگردانی',
+          isDestructive: false,
+          onConfirm: async () => {
+              try {
+                  const updatedT = { ...t, status: 'Registered' as TransactionStatus, updatedAt: new Date().toISOString() };
+                  await api.transactions.update(updatedT);
+                  setTransactions(prev => prev.map(item => item.id === t.id ? updatedT : item));
+                  showToast('تراکنش بازگردانی شد', 'success');
+              } catch (err) {
+                  showToast('خطا', 'error');
+              }
+          }
+      });
+  };
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => { setFormData(prev => ({ ...prev, attachments: [...(prev.attachments || []), reader.result as string] })); }; reader.readAsDataURL(file); } };
   const removeAttachment = (index: number) => { setFormData(prev => ({ ...prev, attachments: prev.attachments?.filter((_, i) => i !== index) })); };
 
@@ -574,7 +641,6 @@ const FinanceView = () => {
       }
   };
 
-  // Fix 3: Badge Style Update
   const getStatusChip = (status: string, isCancelled: boolean) => {
       const baseClass = "px-3 py-1 rounded-full text-[10px] font-bold border transition-colors";
       if (isCancelled) return <span className={`${baseClass} bg-gray-100 text-gray-500 border-gray-200`}>لغو شده</span>;
@@ -591,7 +657,6 @@ const FinanceView = () => {
 
   // --- REUSABLE CHIP RENDERER ---
   const RenderRelationChips = ({ t, isChild }: { t: Transaction, isChild: boolean }) => {
-      // Fix 2: Hide chips for child rows
       if (isChild) return null;
 
       const { derivedProjectId, derivedClientId, project, invoice } = getDerivedContext(t);
@@ -614,11 +679,22 @@ const FinanceView = () => {
 
       return (
           <div className="flex flex-wrap gap-2 items-center">
-               {catLabel && (
-                   <span className="inline-flex items-center gap-1 text-[10px] text-gray-500 bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded-lg border border-transparent">
+               {/* CATEGORY CHIP */}
+               {t.categoryId ? (
+                   <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg border border-transparent text-gray-500 bg-gray-100 dark:bg-slate-700">
                        <Tag size={10}/> {catLabel}
                    </span>
+               ) : (
+                   <button 
+                       onClick={(e) => {
+                           if(isSuperAdmin) handleEditTransaction(e, t);
+                       }}
+                       className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg border border-dashed border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition ${isSuperAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+                   >
+                       <AlertCircle size={10}/> بدون دسته‌بندی {isSuperAdmin && '(انتخاب)'}
+                   </button>
                )}
+
                {project && (
                    <button onClick={(e) => { e.stopPropagation(); setFilterProject(derivedProjectId || 'All'); setOpenProjectMenu(false);}} className="inline-flex items-center gap-1 text-[10px] text-purple-600 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100 hover:bg-purple-100 transition">
                        <Briefcase size={10}/> پروژه: {project.title}
@@ -667,13 +743,8 @@ const FinanceView = () => {
 
        const displayNo = isChild ? index + 1 : (t.sequenceNo ?? legacySequenceMap[t.id]);
 
-       // Fix 5: Permissions for UI
        const canManage = hasPermission('MANAGE_FINANCE');
-       
-       // Edit: Allowed if Registered (Standard) OR Approved (Admin Only)
        const canEdit = (t.status === 'Registered' && canManage) || (t.status === 'Approved' && isSuperAdmin);
-       
-       // Cancel: Allowed if Manage (Standard) OR Approved (Admin Only)
        const canCancel = (t.status === 'Registered' && canManage) || (t.status === 'Approved' && isSuperAdmin);
 
        return (
@@ -700,6 +771,12 @@ const FinanceView = () => {
                                    سیستمی
                                </span>
                            )}
+                           
+                           {activeTab === 'Ledger' && (
+                               <span className={`text-[9px] px-1.5 py-0.5 rounded border ${t.category === FinanceCategory.Personal ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
+                                   {t.category === FinanceCategory.Personal ? 'شخصی' : 'آژانس'}
+                               </span>
+                           )}
                        </div>
                        
                        <RenderRelationChips t={t} isChild={isChild} />
@@ -717,7 +794,6 @@ const FinanceView = () => {
                    </div>
                </td>
 
-               {/* Fix 4: Ensure Calendar Icon is present for both Parent and Child rows */}
                <td className="border-y border-gray-100 dark:border-slate-700 p-4 text-center align-middle w-40">
                    <div className="flex flex-col items-center gap-1 text-gray-500">
                        <div className="flex items-center gap-1.5 text-xs font-bold bg-gray-50 dark:bg-slate-700/50 px-2 py-1 rounded-lg">
@@ -734,7 +810,6 @@ const FinanceView = () => {
                <td className="border-y border-gray-100 dark:border-slate-700 p-4 text-center align-middle w-40">
                    <div className="flex flex-col items-center justify-center gap-2 relative">
                        {getStatusChip(t.status || 'Registered', isCancelled)}
-                       {/* Only Admin can Approve */}
                        {!isCancelled && t.status === 'Registered' && isSuperAdmin && (
                            <button 
                                onClick={(e) => initiateApprove(e, t)}
@@ -749,8 +824,6 @@ const FinanceView = () => {
 
                <td className={`border-y border-gray-100 dark:border-slate-700 p-4 text-center align-middle w-16 ${isChild ? '' : 'rounded-l-2xl'}`}>
                    <div className="flex justify-center items-center gap-2 opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto transition-all duration-200 ease-out">
-                       
-                       {/* Fix 5: Edit Button Logic - Hide if not allowed */}
                        {canEdit && !isCancelled && (
                            <button 
                                onClick={(e) => handleEditTransaction(e, t)}
@@ -764,7 +837,6 @@ const FinanceView = () => {
                        {t.status === 'Cancelled' ? (
                            isSuperAdmin && <button onClick={(e) => initiateRestore(e, t)} className="p-2 rounded-xl text-blue-500 bg-blue-50 hover:bg-blue-100 transition shadow-sm active:scale-95" title="بازگردانی"><RotateCcw size={16}/></button>
                        ) : (
-                           // Fix 5: Cancel Button Logic - Hide if not allowed
                            canCancel && (
                                <button 
                                 onClick={(e) => initiateCancel(e, t)} 
@@ -788,7 +860,6 @@ const FinanceView = () => {
            const { invoice: inv, items } = groupOrItem.data;
            const isExpanded = expandedRowId === inv.id;
            const { totalPaid } = getInvoiceGlobalStats(inv.id);
-           const remaining = Math.max(0, inv.finalAmount - totalPaid);
            const progress = inv.finalAmount > 0 ? (totalPaid / inv.finalAmount) * 100 : 0;
            const isSettled = progress >= 100;
            
@@ -826,7 +897,6 @@ const FinanceView = () => {
                        </td>
                        <td className="p-4 text-center align-middle">
                            <div className="w-full max-w-[140px] mx-auto">
-                               {/* Fix 3: Settled Badge Style & Spacing */}
                                <div className="flex justify-between items-center mb-2">
                                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold border transition-colors ${isSettled ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
                                        {isSettled ? 'تسویه شده' : 'پرداخت مرحله‌ای'}
@@ -861,7 +931,7 @@ const FinanceView = () => {
        }
   };
 
-  // --- SPLIT VIEW LOGIC ---
+  // --- SPLIT VIEW LOGIC (Agency/Personal) ---
   const renderSplitView = () => {
       const incomeList = processGroupedItems(filteredTransactions.filter(t => t.type === TransactionType.Income));
       const expenseList = filteredTransactions.filter(t => t.type === TransactionType.Expense);
@@ -889,14 +959,45 @@ const FinanceView = () => {
       );
   };
 
+  // --- LEDGER TABLE (New View) ---
+  const renderLedgerView = () => {
+      // For Ledger, we show everything in a flat, detailed table. Grouping is disabled to allow sorting by date strictly.
+      // But user might want grouping by invoice. Let's keep `groupedItems` logic but render differently.
+      // Actually, standard ledger is chronological. Let's use `filteredTransactions` directly.
+      const list = [...filteredTransactions].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      return (
+          <div className="overflow-x-auto pb-20 animate-in fade-in">
+               <table className="w-full border-separate border-spacing-y-3">
+                   <thead className="text-gray-400 text-xs uppercase tracking-wider opacity-60">
+                       <tr>
+                           <th className="px-4 py-2 w-10 text-center">#</th>
+                           <th className="px-4 py-2 text-right">عنوان تراکنش</th>
+                           <th className="px-4 py-2 text-center w-32">نوع</th>
+                           <th className="px-4 py-2 text-center w-40">مبلغ</th>
+                           <th className="px-4 py-2 text-center w-32">تاریخ</th>
+                           <th className="px-4 py-2 text-center w-32">وضعیت</th>
+                           <th className="px-4 py-2 w-16"></th>
+                       </tr>
+                   </thead>
+                   <tbody>
+                       {list.length > 0 ? list.map((t, i) => renderRow(t, i)) : <tr><td colSpan={7} className="text-center py-12 text-gray-400">هیچ تراکنشی یافت نشد</td></tr>}
+                   </tbody>
+               </table>
+          </div>
+      );
+  };
+
   return (
     <div className="font-shabnam">
        <div className="flex gap-4 mb-6 border-b border-gray-200 dark:border-slate-700">
            <button onClick={() => setActiveTab(FinanceCategory.Agency)} className={`pb-3 px-4 font-bold transition ${activeTab === FinanceCategory.Agency ? 'text-primary-600 border-b-2 border-primary-600' : 'text-gray-500'}`}>مالی آژانس</button>
            <button onClick={() => setActiveTab(FinanceCategory.Personal)} className={`pb-3 px-4 font-bold transition ${activeTab === FinanceCategory.Personal ? 'text-primary-600 border-b-2 border-primary-600' : 'text-gray-500'}`}>مالی شخصی</button>
+           <button onClick={() => setActiveTab('Ledger')} className={`pb-3 px-4 font-bold transition ${activeTab === 'Ledger' ? 'text-primary-600 border-b-2 border-primary-600' : 'text-gray-500'}`}>دفتر کل</button>
        </div>
 
-       {/* --- SUMMARY SECTION --- */}
+       {/* --- SUMMARY SECTION (Only for Agency/Personal) --- */}
+       {activeTab !== 'Ledger' && (
        <div className="mb-8 space-y-4">
            {/* Period Selector */}
            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -956,187 +1057,184 @@ const FinanceView = () => {
                </div>
            </div>
        </div>
+       )}
        
-       {/* Search & Filters */}
-       <div className="bg-white dark:bg-slate-800 p-2 rounded-2xl border border-gray-100 dark:border-slate-700 mb-6 shadow-sm">
-            {/* ... Filters content same as previous ... */}
-            <div className="flex flex-col md:flex-row gap-3 items-center p-2">
-                <div className="relative flex-1 w-full md:w-auto">
-                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input 
-                        type="text" 
-                        placeholder="جستجو در تراکنش‌ها..." 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-4 pr-10 h-10 rounded-xl bg-gray-50 dark:bg-slate-900 border-none outline-none focus:ring-2 focus:ring-primary-500/20 transition text-sm font-medium"
-                    />
-                </div>
+       {/* Responsive Filter Bar */}
+       <div className="bg-white dark:bg-slate-800 p-3 rounded-2xl border border-gray-100 dark:border-slate-700 mb-6 shadow-sm">
+            <div className="grid grid-cols-12 gap-3 items-center">
                 
-                <div className="flex flex-wrap gap-2 items-center w-full md:w-auto justify-end">
-                    
-                    {/* Project Filter */}
-                    <div className="relative" ref={projectMenuRef}>
-                        <button onClick={() => setOpenProjectMenu(!openProjectMenu)} className={`h-10 px-4 rounded-xl text-xs font-bold transition flex items-center gap-2 border ${filterProject !== 'All' ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-50'}`}>
-                            <Briefcase size={16}/>
-                            <span>{filterProject !== 'All' ? (projects.find(p => p.id === filterProject)?.title || 'پروژه') : 'پروژه...'}</span>
-                            <ChevronDown size={12} className={`transition-transform ${openProjectMenu ? 'rotate-180' : ''}`}/>
-                        </button>
-                        {openProjectMenu && (
-                            <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 origin-top-right max-h-60 overflow-y-auto custom-scrollbar">
-                                <button onClick={() => { setFilterProject('All'); setOpenProjectMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition ${filterProject === 'All' ? 'bg-purple-50 text-purple-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                    همه پروژه‌ها
+                {/* ROW 1: Date / Status / Type / Clear */}
+                <div className="col-span-6 md:col-span-3 lg:col-span-2 relative" ref={dateMenuRef}>
+                    <button onClick={() => setOpenDateMenu(!openDateMenu)} className={`w-full h-10 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between border ${dateFilter !== 'All' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-gray-50 dark:bg-slate-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'}`}>
+                        <span className="flex items-center gap-2 truncate"><Calendar size={14}/> {getDateLabel(dateFilter)}</span>
+                        <ChevronDown size={12} className={`transition-transform shrink-0 ${openDateMenu ? 'rotate-180' : ''}`}/>
+                    </button>
+                    {openDateMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150">
+                            {['All', 'Today', 'Week', 'Month'].map(opt => (
+                                <button key={opt} onClick={() => { setDateFilter(opt as any); setOpenDateMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex items-center justify-between ${dateFilter === opt ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                    {getDateLabel(opt)}
+                                    {dateFilter === opt && <Check size={12}/>}
                                 </button>
-                                <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
-                                {projects.map(p => (
-                                    <button key={p.id} onClick={() => { setFilterProject(p.id); setOpenProjectMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex justify-between ${filterProject === p.id ? 'bg-purple-50 text-purple-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                        {p.title}
-                                        {filterProject === p.id && <Check size={12}/>}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Entity Filter */}
-                    <div className="relative" ref={entityMenuRef}>
-                        <button onClick={() => setOpenEntityMenu(!openEntityMenu)} className={`h-10 px-4 rounded-xl text-xs font-bold transition flex items-center gap-2 border ${filterEntity !== 'All' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-50'}`}>
-                            <Users size={16}/>
-                            <span>{filterEntity !== 'All' ? (clients.find(c => c.id === filterEntity)?.name || 'مشتری') : 'مشتری / گروه...'}</span>
-                            <ChevronDown size={12} className={`transition-transform ${openEntityMenu ? 'rotate-180' : ''}`}/>
-                        </button>
-                        {openEntityMenu && (
-                            <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 origin-top-right max-h-60 overflow-y-auto custom-scrollbar">
-                                <button onClick={() => { setFilterEntity('All'); setOpenEntityMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition ${filterEntity === 'All' ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                    همه تراکنش‌ها
+                            ))}
+                            <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
+                            <div className="px-1">
+                                    <button onClick={() => setDateFilter('Custom')} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex items-center justify-between ${dateFilter === 'Custom' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                    بازه زمانی دلخواه
+                                    {dateFilter === 'Custom' && <Check size={12}/>}
                                 </button>
-                                <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
-                                <span className="px-2 text-[10px] text-gray-400 font-bold mb-1">مشتریان و کانکشن‌ها</span>
-                                {clients.map(c => (
-                                    <button key={c.id} onClick={() => { setFilterEntity(c.id); setOpenEntityMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex justify-between ${filterEntity === c.id ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                        {c.name}
-                                        {filterEntity === c.id && <Check size={12}/>}
-                                    </button>
-                                ))}
+                                {dateFilter === 'Custom' && (
+                                    <div className="mt-2">
+                                        <JalaliDatePicker isRange startDate={customDateRange.start} endDate={customDateRange.end} onRangeChange={(s, e) => setCustomDateRange({start: s, end: e})} label="" />
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
+                </div>
 
-                    {/* Payee Filter (New) */}
-                    <div className="relative" ref={payeeMenuRef}>
-                        <button onClick={() => setOpenPayeeMenu(!openPayeeMenu)} className={`h-10 px-4 rounded-xl text-xs font-bold transition flex items-center gap-2 border ${filterPayee !== 'All' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-50'}`}>
-                            <UserIcon size={16}/>
-                            <span>{filterPayee !== 'All' ? (users.find(u => u.id === filterPayee)?.firstName || 'شخص') : 'پرداخت به...'}</span>
-                            <ChevronDown size={12} className={`transition-transform ${openPayeeMenu ? 'rotate-180' : ''}`}/>
-                        </button>
-                        {openPayeeMenu && (
-                            <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 origin-top-right max-h-60 overflow-y-auto custom-scrollbar">
-                                <button onClick={() => { setFilterPayee('All'); setOpenPayeeMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition ${filterPayee === 'All' ? 'bg-amber-50 text-amber-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                    همه اشخاص
+                <div className="col-span-6 md:col-span-3 lg:col-span-2 relative" ref={statusMenuRef}>
+                    <button onClick={() => setOpenStatusMenu(!openStatusMenu)} className={`w-full h-10 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between border ${filterStatus !== 'All' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 dark:bg-slate-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'}`}>
+                        <span className="truncate">{filterStatus === 'All' ? 'وضعیت' : filterStatus === 'Registered' ? 'ثبت‌شده' : filterStatus === 'Approved' ? 'تایید نهایی' : 'لغو شده'}</span>
+                        <ChevronDown size={12} className={`transition-transform shrink-0 ${openStatusMenu ? 'rotate-180' : ''}`}/>
+                    </button>
+                    {openStatusMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-1 animate-in fade-in zoom-in-95 duration-150">
+                            {['All', 'Registered', 'Approved', 'Cancelled'].map(s => (
+                                <button key={s} onClick={() => { setFilterStatus(s as any); setOpenStatusMenu(false); }} className="w-full text-right px-3 py-2 text-xs rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition flex items-center justify-between text-gray-600 dark:text-gray-300">
+                                    {s === 'All' ? 'همه' : s === 'Registered' ? 'ثبت‌شده' : s === 'Approved' ? 'تایید نهایی' : 'لغو شده'}
+                                    {filterStatus === s && <Check size={12} className="text-primary-600"/>}
                                 </button>
-                                <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
-                                {users.map(u => (
-                                    <button key={u.id} onClick={() => { setFilterPayee(u.id); setOpenPayeeMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex justify-between ${filterPayee === u.id ? 'bg-amber-50 text-amber-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                        {u.firstName} {u.lastName}
-                                        {filterPayee === u.id && <Check size={12}/>}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
 
-                    <div className="bg-gray-100 dark:bg-slate-900 p-1 rounded-xl flex h-10 items-center">
+                <div className="col-span-12 md:col-span-4 lg:col-span-3">
+                    <div className="bg-gray-100 dark:bg-slate-900 p-1 rounded-xl flex h-10 items-center w-full">
                         {['All', 'Income', 'Expense'].map(t => (
-                            <button key={t} onClick={() => setFilterType(t as any)} className={`px-3 h-8 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5 ${filterType === t ? 'bg-white dark:bg-slate-700 shadow-sm text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+                            <button key={t} onClick={() => setFilterType(t as any)} className={`flex-1 h-8 rounded-lg text-[10px] font-bold transition flex items-center justify-center gap-1 ${filterType === t ? 'bg-white dark:bg-slate-700 shadow-sm text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700'}`}>
                                 {t === 'Income' && <ArrowUpCircle size={12} className={filterType === t ? 'text-emerald-500' : ''}/>}
                                 {t === 'Expense' && <ArrowDownCircle size={12} className={filterType === t ? 'text-red-500' : ''}/>}
                                 {t === 'All' ? 'همه' : t === 'Income' ? 'درآمد' : 'هزینه'}
                             </button>
                         ))}
                     </div>
+                </div>
 
-                    <div className="relative" ref={statusMenuRef}>
-                        <button onClick={() => setOpenStatusMenu(!openStatusMenu)} className={`h-10 px-4 rounded-xl text-xs font-bold transition flex items-center gap-2 border ${filterStatus !== 'All' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-50'}`}>
-                            {filterStatus === 'All' ? 'همه وضعیت‌ها' : filterStatus === 'Registered' ? 'ثبت‌شده' : filterStatus === 'Approved' ? 'تایید نهایی' : 'لغو شده'}
-                            <ChevronDown size={12} className={`transition-transform ${openStatusMenu ? 'rotate-180' : ''}`}/>
-                        </button>
-                        {openStatusMenu && (
-                            <div className="absolute top-full left-0 mt-2 w-40 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-1 animate-in fade-in zoom-in-95 duration-150 origin-top-left">
-                                {['All', 'Registered', 'Approved', 'Cancelled'].map(s => (
-                                    <button key={s} onClick={() => { setFilterStatus(s as any); setOpenStatusMenu(false); }} className="w-full text-right px-3 py-2 text-xs rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition flex items-center justify-between text-gray-600 dark:text-gray-300">
-                                        {s === 'All' ? 'همه' : s === 'Registered' ? 'ثبت‌شده' : s === 'Approved' ? 'تایید نهایی' : 'لغو شده'}
-                                        {filterStatus === s && <Check size={12} className="text-primary-600"/>}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                <div className="col-span-12 md:col-span-2 lg:col-span-5 flex justify-end">
+                     <button onClick={() => { setSearchQuery(''); setFilterType('All'); setFilterStatus('All'); setFilterProject('All'); setFilterEntity('All'); setFilterPayee('All'); setDateFilter('All'); setAdvFilters({categoryId: '', projectId: '', clientId: '', invoiceId: '', minAmount: '', maxAmount: ''}); }} className="text-xs text-gray-400 hover:text-red-500 font-bold px-3 py-2">
+                         پاک کردن فیلترها
+                     </button>
+                </div>
 
-                    <div className="relative" ref={dateMenuRef}>
-                        <button onClick={() => setOpenDateMenu(!openDateMenu)} className={`h-10 px-4 rounded-xl text-xs font-bold transition flex items-center gap-2 border ${dateFilter !== 'All' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-50'}`}>
-                            <Calendar size={16}/>
-                            <span>{getDateLabel(dateFilter)}</span>
-                            <ChevronDown size={12} className={`transition-transform ${openDateMenu ? 'rotate-180' : ''}`}/>
-                        </button>
-                        {openDateMenu && (
-                            <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 origin-top-right">
-                                {['All', 'Today', 'Week', 'Month'].map(opt => (
-                                    <button key={opt} onClick={() => { setDateFilter(opt as any); setOpenDateMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex items-center justify-between ${dateFilter === opt ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                        {getDateLabel(opt)}
-                                        {dateFilter === opt && <Check size={12}/>}
-                                    </button>
-                                ))}
-                                <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
-                                <div className="px-1">
-                                     <button onClick={() => setDateFilter('Custom')} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex items-center justify-between ${dateFilter === 'Custom' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
-                                        بازه زمانی دلخواه
-                                        {dateFilter === 'Custom' && <Check size={12}/>}
-                                    </button>
-                                    {dateFilter === 'Custom' && (
-                                        <div className="mt-2">
-                                            <JalaliDatePicker isRange startDate={customDateRange.start} endDate={customDateRange.end} onRangeChange={(s, e) => setCustomDateRange({start: s, end: e})} label="" />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <button onClick={() => setShowAdvanced(!showAdvanced)} className={`h-10 w-10 flex items-center justify-center rounded-xl border transition ${showAdvanced ? 'bg-primary-50 border-primary-200 text-primary-600' : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 hover:bg-gray-50'}`} title="فیلترهای پیشرفته">
-                        <Filter size={18}/>
+                {/* ROW 2: Payee / Entity / Project / Category / Search */}
+                <div className="col-span-6 md:col-span-3 lg:col-span-2 relative" ref={payeeMenuRef}>
+                    <button onClick={() => setOpenPayeeMenu(!openPayeeMenu)} className={`w-full h-10 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between border ${filterPayee !== 'All' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-gray-50 dark:bg-slate-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'}`}>
+                        <span className="flex items-center gap-2 truncate"><UserIcon size={14}/> {filterPayee !== 'All' ? (users.find(u => u.id === filterPayee)?.firstName || 'شخص') : 'پرداخت به'}</span>
+                        <ChevronDown size={12} className={`transition-transform shrink-0 ${openPayeeMenu ? 'rotate-180' : ''}`}/>
                     </button>
+                    {openPayeeMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 max-h-60 overflow-y-auto custom-scrollbar">
+                            <button onClick={() => { setFilterPayee('All'); setOpenPayeeMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition ${filterPayee === 'All' ? 'bg-amber-50 text-amber-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                همه
+                            </button>
+                            <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
+                            {users.map(u => (
+                                <button key={u.id} onClick={() => { setFilterPayee(u.id); setOpenPayeeMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex justify-between ${filterPayee === u.id ? 'bg-amber-50 text-amber-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                    {u.firstName} {u.lastName}
+                                    {filterPayee === u.id && <Check size={12}/>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="col-span-6 md:col-span-3 lg:col-span-2 relative" ref={entityMenuRef}>
+                    <button onClick={() => setOpenEntityMenu(!openEntityMenu)} className={`w-full h-10 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between border ${filterEntity !== 'All' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-gray-50 dark:bg-slate-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'}`}>
+                        <span className="flex items-center gap-2 truncate"><Users size={14}/> {filterEntity !== 'All' ? (clients.find(c => c.id === filterEntity)?.name || 'مشتری') : 'طرف حساب'}</span>
+                        <ChevronDown size={12} className={`transition-transform shrink-0 ${openEntityMenu ? 'rotate-180' : ''}`}/>
+                    </button>
+                    {openEntityMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 max-h-60 overflow-y-auto custom-scrollbar">
+                            <button onClick={() => { setFilterEntity('All'); setOpenEntityMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition ${filterEntity === 'All' ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                همه
+                            </button>
+                            <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
+                            {clients.map(c => (
+                                <button key={c.id} onClick={() => { setFilterEntity(c.id); setOpenEntityMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex justify-between ${filterEntity === c.id ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                    {c.name}
+                                    {filterEntity === c.id && <Check size={12}/>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="col-span-6 md:col-span-3 lg:col-span-2 relative" ref={projectMenuRef}>
+                    <button onClick={() => setOpenProjectMenu(!openProjectMenu)} className={`w-full h-10 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between border ${filterProject !== 'All' ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-gray-50 dark:bg-slate-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'}`}>
+                        <span className="flex items-center gap-2 truncate"><Briefcase size={14}/> {filterProject !== 'All' ? (projects.find(p => p.id === filterProject)?.title || 'پروژه') : 'پروژه'}</span>
+                        <ChevronDown size={12} className={`transition-transform shrink-0 ${openProjectMenu ? 'rotate-180' : ''}`}/>
+                    </button>
+                    {openProjectMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 max-h-60 overflow-y-auto custom-scrollbar">
+                            <button onClick={() => { setFilterProject('All'); setOpenProjectMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition ${filterProject === 'All' ? 'bg-purple-50 text-purple-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                همه پروژه‌ها
+                            </button>
+                            <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
+                            {projects.map(p => (
+                                <button key={p.id} onClick={() => { setFilterProject(p.id); setOpenProjectMenu(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex justify-between ${filterProject === p.id ? 'bg-purple-50 text-purple-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                    {p.title}
+                                    {filterProject === p.id && <Check size={12}/>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="col-span-6 md:col-span-3 lg:col-span-2 relative" ref={advCategoryRef}>
+                    <button onClick={() => setOpenAdvCategory(!openAdvCategory)} className={`w-full h-10 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between border ${advFilters.categoryId ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-gray-50 dark:bg-slate-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'}`}>
+                        <span className="flex items-center gap-2 truncate"><Tag size={14}/> {advFilters.categoryId ? getSelectedLabel('Category', advFilters.categoryId) : 'دسته'}</span>
+                        <ChevronDown size={12} className={`transition-transform shrink-0 ${openAdvCategory ? 'rotate-180' : ''}`}/>
+                    </button>
+                    {openAdvCategory && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 z-50 p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150 max-h-60 overflow-y-auto custom-scrollbar">
+                            <button onClick={() => { setAdvFilters({...advFilters, categoryId: ''}); setOpenAdvCategory(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition ${!advFilters.categoryId ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                همه دسته‌ها
+                            </button>
+                            <div className="border-t border-gray-100 dark:border-slate-700 my-1"></div>
+                            {categories.filter(c => !c.parentId && c.isActive).map(c => (
+                                <button key={c.id} onClick={() => { setAdvFilters({...advFilters, categoryId: c.id}); setOpenAdvCategory(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg font-medium transition flex justify-between ${advFilters.categoryId === c.id ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>
+                                    {c.name}
+                                    {advFilters.categoryId === c.id && <Check size={12}/>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="col-span-12 lg:col-span-4 relative">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                    <input 
+                        type="text" 
+                        placeholder="جستجو در تراکنش‌ها..." 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        style={{ paddingRight: '3.5rem' }}
+                        className="w-full pl-4 h-10 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-primary-500/20 transition text-sm font-medium"
+                    />
                 </div>
             </div>
-
-            {showAdvanced && (
-                <div className="pt-4 border-t border-gray-100 dark:border-slate-700 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-top-4 fade-in">
-                    <div className="relative" ref={advCategoryRef}>
-                        <div onClick={() => setOpenAdvCategory(!openAdvCategory)} className={`h-10 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer border select-none ${advFilters.categoryId ? 'bg-primary-50 text-primary-700 border-primary-200 dark:bg-primary-900/20 dark:text-primary-300 dark:border-primary-800' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-slate-700 hover:border-gray-300'}`}>
-                            <div className="flex items-center gap-2 overflow-hidden">
-                                <Tag size={16} className={`shrink-0 ${advFilters.categoryId ? 'text-primary-600' : 'text-gray-400'}`}/>
-                                <span className="truncate">{getSelectedLabel('Category', advFilters.categoryId)}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                                {advFilters.categoryId && <button onClick={(e) => { e.stopPropagation(); setAdvFilters({...advFilters, categoryId: ''}); }} className="p-1 hover:bg-black/10 rounded-full transition"><X size={12}/></button>}
-                                <ChevronDown size={12} className={`transition-transform duration-200 text-gray-400 ${openAdvCategory ? 'rotate-180' : ''}`}/>
-                            </div>
-                        </div>
-                        {openAdvCategory && (
-                            <div className="absolute top-[calc(100%+4px)] right-0 w-full bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-100 dark:border-slate-700 z-[60] p-1 max-h-60 overflow-y-auto custom-scrollbar">
-                                <button onClick={() => { setAdvFilters({...advFilters, categoryId: ''}); setOpenAdvCategory(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg transition ${!advFilters.categoryId ? 'bg-primary-50 text-primary-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}>همه دسته‌ها</button>
-                                {categories.filter(c => !c.parentId).map(c => (
-                                    <button key={c.id} onClick={() => { setAdvFilters({...advFilters, categoryId: c.id}); setOpenAdvCategory(false); }} className={`w-full text-right px-3 py-2 text-xs rounded-lg transition flex justify-between items-center ${advFilters.categoryId === c.id ? 'bg-primary-50 text-primary-600' : 'hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300'}`}><span>{c.name}</span>{advFilters.categoryId === c.id && <Check size={12}/>}</button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
        </div>
 
        <div className="flex justify-between items-center mb-6">
            <div>
-               <h2 className="text-xl font-black text-gray-800 dark:text-white tracking-tight">لیست تراکنش‌ها</h2>
-               <p className="text-xs text-gray-400 mt-1">مدیریت و پیگیری تراکنش‌های {activeTab === FinanceCategory.Agency ? 'آژانس' : 'شخصی'}</p>
+               <h2 className="text-xl font-black text-gray-800 dark:text-white tracking-tight">
+                   {activeTab === 'Ledger' ? 'دفتر کل تراکنش‌ها' : 'لیست تراکنش‌ها'}
+               </h2>
+               <p className="text-xs text-gray-400 mt-1">
+                   {activeTab === 'Ledger' ? 'نمای جامع تمام تراکنش‌های ثبت شده در سیستم' : `مدیریت و پیگیری تراکنش‌های ${activeTab === FinanceCategory.Agency ? 'آژانس' : 'شخصی'}`}
+               </p>
            </div>
            <button 
                 onClick={() => { resetForm(); setIsModalOpen(true); }} 
@@ -1146,25 +1244,27 @@ const FinanceView = () => {
            </button>
        </div>
 
-       {/* CONDITIONAL RENDER: SPLIT VIEW IF ENTITY SELECTED */}
-       {filterEntity !== 'All' ? renderSplitView() : (
-           <div className="overflow-x-auto pb-20">
-               <table className="w-full border-separate border-spacing-y-3">
-                   <thead className="text-gray-400 text-xs uppercase tracking-wider opacity-60">
-                       <tr>
-                           <th className="px-4 py-2 w-10 text-center">#</th>
-                           <th className="px-4 py-2 text-right">عنوان و جزئیات</th>
-                           <th className="px-4 py-2 text-center w-48">مبلغ</th>
-                           <th className="px-4 py-2 text-center w-40">تاریخ / پرداخت</th>
-                           <th className="px-4 py-2 text-center w-40">وضعیت</th>
-                           <th className="px-4 py-2 w-16"></th>
-                       </tr>
-                   </thead>
-                   <tbody>
-                       {groupedItems.length > 0 ? groupedItems.map((groupOrItem, gIdx) => renderGroup(groupOrItem, gIdx)) : <tr><td colSpan={6} className="text-center py-12 text-gray-400">هیچ تراکنشی یافت نشد</td></tr>}
-                   </tbody>
-               </table>
-           </div>
+       {/* CONDITIONAL RENDER: SPLIT VIEW IF ENTITY SELECTED OR LEDGER VIEW */}
+       {activeTab === 'Ledger' ? renderLedgerView() : (
+           filterEntity !== 'All' ? renderSplitView() : (
+               <div className="overflow-x-auto pb-20">
+                   <table className="w-full border-separate border-spacing-y-3">
+                       <thead className="text-gray-400 text-xs uppercase tracking-wider opacity-60">
+                           <tr>
+                               <th className="px-4 py-2 w-10 text-center">#</th>
+                               <th className="px-4 py-2 text-right">عنوان و جزئیات</th>
+                               <th className="px-4 py-2 text-center w-48">مبلغ</th>
+                               <th className="px-4 py-2 text-center w-40">تاریخ / پرداخت</th>
+                               <th className="px-4 py-2 text-center w-40">وضعیت</th>
+                               <th className="px-4 py-2 w-16"></th>
+                           </tr>
+                       </thead>
+                       <tbody>
+                           {groupedItems.length > 0 ? groupedItems.map((groupOrItem, gIdx) => renderGroup(groupOrItem, gIdx)) : <tr><td colSpan={6} className="text-center py-12 text-gray-400">هیچ تراکنشی یافت نشد</td></tr>}
+                       </tbody>
+                   </table>
+               </div>
+           )
        )}
 
        {/* Modals ... */}
@@ -1186,9 +1286,9 @@ const FinanceView = () => {
                {/* Categories */}
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                    <div>
-                       <label className="block text-sm font-bold mb-1">دسته‌بندی</label>
+                       <label className="block text-sm font-bold mb-1">دسته‌بندی (اختیاری)</label>
                        <select value={selectedParentCat} onChange={(e) => { const val = e.target.value; setSelectedParentCat(val); setFormData(prev => ({...prev, categoryId: val || undefined})); }} className="w-full p-3 border border-gray-200 dark:border-slate-700 rounded-xl dark:bg-slate-900 outline-none cursor-pointer">
-                           <option value="">انتخاب دسته (اختیاری)</option>
+                           <option value="">انتخاب دسته</option>
                            {categories.filter(c => c.type === (formData.type === TransactionType.Income ? 'income' : 'expense') && !c.parentId && c.isActive).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                        </select>
                    </div>
@@ -1253,7 +1353,6 @@ const FinanceView = () => {
                            <h3 className="text-sm font-bold text-blue-700 dark:text-blue-300 flex items-center gap-2"><Layers size={16}/> پرداخت‌های فاکتور</h3>
                        </div>
                        
-                        {/* Goal 2: Progress Bar */}
                         {(() => {
                             const inv = invoices.find(i => i.id === formData.invoiceId);
                             if(inv) {
@@ -1281,7 +1380,6 @@ const FinanceView = () => {
                             }
                         })()}
 
-                        {/* Goal 1: Installment Count Input */}
                         <div className="flex items-center gap-2 mb-4">
                             <div className="flex-1">
                                 <label className="block text-xs font-bold mb-1 text-blue-700 dark:text-blue-300">تعداد کل اقساط</label>
@@ -1352,51 +1450,7 @@ const FinanceView = () => {
                    <button type="submit" className="px-8 py-3 rounded-xl bg-primary-600 text-white font-bold hover:bg-primary-700 transition shadow-lg shadow-primary-500/20">ثبت تراکنش</button>
                </div>
            </form>
-       </Modal>
-
-        {approveId && (
-            <Modal isOpen={true} onClose={() => setApproveId(null)} title="تایید نهایی تراکنش" size="sm">
-                <div className="p-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 font-medium leading-relaxed">
-                        آیا از تایید نهایی این تراکنش اطمینان دارید؟ <br/>
-                        <span className="text-xs text-gray-400">پس از تایید، تراکنش قفل خواهد شد.</span>
-                    </p>
-                    <div className="flex gap-3">
-                        <button onClick={() => setApproveId(null)} className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-gray-500 font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition">انصراف</button>
-                        <button onClick={performApprove} className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition shadow-lg shadow-emerald-500/20">تایید نهایی</button>
-                    </div>
-                </div>
-            </Modal>
-        )}
-
-        {confirmId && (
-            <Modal isOpen={true} onClose={() => setConfirmId(null)} title="لغو تراکنش" size="sm">
-                <div className="p-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 font-medium leading-relaxed">
-                        آیا از لغو این تراکنش اطمینان دارید؟ <br/>
-                        <span className="text-xs text-red-500">تراکنش لغو شده در محاسبات مالی لحاظ نخواهد شد.</span>
-                    </p>
-                    <div className="flex gap-3">
-                        <button onClick={() => setConfirmId(null)} className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-gray-500 font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition">انصراف</button>
-                        <button onClick={performCancel} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 transition shadow-lg shadow-red-500/20">لغو تراکنش</button>
-                    </div>
-                </div>
-            </Modal>
-        )}
-
-        {restoreId && (
-            <Modal isOpen={true} onClose={() => setRestoreId(null)} title="بازگردانی تراکنش" size="sm">
-                <div className="p-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 font-medium leading-relaxed">
-                        آیا می‌خواهید این تراکنش را به وضعیت فعال بازگردانید؟
-                    </p>
-                    <div className="flex gap-3">
-                        <button onClick={() => setRestoreId(null)} className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-gray-500 font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition">انصراف</button>
-                        <button onClick={performRestore} className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-500/20">بازگردانی</button>
-                    </div>
-                </div>
-            </Modal>
-        )}
+        </Modal>
     </div>
   );
 };

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Invoice, InvoiceStatus, Currency, InvoiceItem, Client, ClientType, InvoiceOptions } from '../types';
 import { ArrowRight, Save, Download, Plus, Trash2, Calculator, Percent, FileText, UserPlus, Image as ImageIcon, PenTool, Check, Eraser, Smartphone, Globe, Moon, Tablet, AlertCircle, Loader2, Printer, MapPin, Mail, Hash, Upload } from 'lucide-react';
 import { generateId, toPersianDigits, formatPriceInput, parsePriceInput, formatJalali, numberToWords, formatCurrency, toEnglishDigits } from '../utils';

@@ -2,24 +2,19 @@
 
 import React, { useState, useEffect, useContext } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Invoice, InvoiceStatus, Client } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, FileText, CheckCircle, Clock, Trash2, Edit, FilePlus, Printer } from 'lucide-react';
 import { formatCurrency, formatJalali, getStatusColor, toPersianDigits } from '../utils';
-import { Modal } from '../components/Shared';
 
 const InvoicesView = () => {
-  const { user, showToast } = useContext(AuthContext);
+  const { user, showToast, confirmAction } = useContext(AuthContext);
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-
-  // Delete State
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [invoiceToDelete, setInvoiceToDelete] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -38,22 +33,22 @@ const InvoicesView = () => {
 
   const initiateDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setInvoiceToDelete(id);
-    setShowDeleteModal(true);
-  };
-
-  const confirmDelete = async () => {
-    if (!invoiceToDelete) return;
-    try {
-        await api.invoices.delete(invoiceToDelete, user!.id);
-        setInvoices(prev => prev.filter(i => i.id !== invoiceToDelete));
-        setShowDeleteModal(false);
-        setInvoiceToDelete(null);
-        showToast('فاکتور با موفقیت حذف شد', 'success');
-    } catch (e) {
-        console.error(e);
-        showToast('خطا در حذف فاکتور', 'error');
-    }
+    confirmAction({
+        title: 'حذف فاکتور',
+        description: 'آیا از حذف این فاکتور اطمینان دارید؟ این عملیات غیرقابل بازگشت است.',
+        confirmText: 'حذف فاکتور',
+        isDestructive: true,
+        onConfirm: async () => {
+            try {
+                await api.invoices.delete(id, user!.id);
+                setInvoices(prev => prev.filter(i => i.id !== id));
+                showToast('فاکتور با موفقیت حذف شد', 'success');
+            } catch (e) {
+                console.error(e);
+                showToast('خطا در حذف فاکتور', 'error');
+            }
+        }
+    });
   };
 
   const getClientName = (id: string) => {
@@ -171,19 +166,6 @@ const InvoicesView = () => {
                 <p>هیچ فاکتوری با این مشخصات یافت نشد.</p>
             </div>
         )}
-
-        <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="حذف فاکتور" size="sm">
-            <div className="flex flex-col gap-4 font-shabnam">
-                <p className="text-gray-700 dark:text-gray-300 leading-7">
-                    آیا از حذف این فاکتور اطمینان دارید؟ <br/>
-                    <span className="text-xs text-red-500">این عملیات غیرقابل بازگشت است.</span>
-                </p>
-                <div className="flex gap-3 mt-2">
-                    <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 border border-gray-200 dark:border-slate-700 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition font-bold">انصراف</button>
-                    <button onClick={confirmDelete} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-lg shadow-red-500/20">حذف فاکتور</button>
-                </div>
-            </div>
-        </Modal>
     </div>
   );
 };

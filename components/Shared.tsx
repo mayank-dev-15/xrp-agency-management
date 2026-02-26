@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Calendar as CalendarIcon, ChevronRight, ChevronLeft, Check, ChevronDown, Globe, CalendarRange, Clock, AlertCircle, CheckCircle, Info, AlertTriangle, XCircle } from 'lucide-react';
+import { X, Calendar as CalendarIcon, ChevronRight, ChevronLeft, Check, ChevronDown, Globe, CalendarRange, Clock, AlertCircle, CheckCircle, Info, AlertTriangle, XCircle, Trash2 } from 'lucide-react';
 import { formatPriceInput, parsePriceInput, numberToWords, toPersianDigits, toEnglishDigits, daysBetween, getJalaliParts, getConversionDisplay, getRelativeDateLabel, formatJalali } from '../utils';
 import { ToastMessage, ToastType } from '../types';
 
@@ -573,4 +573,56 @@ export const JalaliDatePicker = ({ value, onChange, label, isRange, startDate, e
             )}
         </div>
     );
+};
+
+export const ConfirmActionDialog = ({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  title = "حذف مورد", 
+  message = "این عمل قابل بازگشت نیست. حذف انجام شود؟", 
+  confirmText = "حذف", 
+  cancelText = "انصراف", 
+  isDestructive = true 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  onConfirm: () => void; 
+  title?: string; 
+  message?: string; 
+  confirmText?: string; 
+  cancelText?: string; 
+  isDestructive?: boolean; 
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl flex flex-col overflow-hidden font-shabnam" onClick={e => e.stopPropagation()}>
+        <div className="p-6 flex flex-col items-center text-center">
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${isDestructive ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-500' : 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-500'}`}>
+            {isDestructive ? <Trash2 size={32} /> : <AlertTriangle size={32} />}
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{title}</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed mb-6">{message}</p>
+          <div className="flex gap-3 w-full">
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-100 dark:hover:bg-slate-800 transition"
+            >
+              {cancelText}
+            </button>
+            <button 
+              type="button" 
+              onClick={() => { onConfirm(); onClose(); }} 
+              className={`flex-1 py-3 rounded-xl font-bold text-white transition shadow-lg ${isDestructive ? 'bg-red-600 hover:bg-red-700 shadow-red-500/20' : 'bg-primary-600 hover:bg-primary-700 shadow-primary-500/20'}`}
+            >
+              {confirmText}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };

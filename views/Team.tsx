@@ -1,16 +1,18 @@
 
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
-import { User, UserRole, UserStatus, Department } from '../types';
+import { AuthContext } from '../AuthContext';
+import { User, UserRole, UserStatus, Department, LedgerSnapshot } from '../types';
+import { LedgerSnapshotService } from '../services/ledger';
 import { Plus, Edit2, Trash2, User as UserIcon, Image as ImageIcon, Briefcase, Layers, X, MessageSquare, ShieldAlert } from 'lucide-react';
 import { Modal } from '../components/Shared';
 import { generateId, toPersianDigits } from '../utils';
 
 const TeamView = () => {
-  const { user, showToast } = useContext(AuthContext);
+  const { user, showToast, confirmAction } = useContext(AuthContext);
   const [users, setUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [snapshots, setSnapshots] = useState<Record<string, LedgerSnapshot>>({});
   const [activeTab, setActiveTab] = useState('All');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,29 +43,44 @@ const TeamView = () => {
       );
 
       // --- DATA SCOPING & SECURITY ---
+      let finalUsers = teamOnlyUsers;
       if (isTeamMember) {
           // Team Member sees ONLY their own department
           if (user.departmentId) {
               const myDept = dData.filter(d => d.id === user.departmentId);
               setDepartments(myDept);
-              setUsers(teamOnlyUsers.filter(u => u.departmentId === user.departmentId));
+              finalUsers = teamOnlyUsers.filter(u => u.departmentId === user.departmentId);
               setActiveTab(user.departmentId); // Force tab lock
           } else {
               // Edge case: Team member with no department
               setDepartments([]);
-              setUsers([user]); // See only self
+              finalUsers = [user]; // See only self
               setActiveTab('All');
           }
       } else {
           // Admin/Manager sees everything (Scoped to Team)
-          setUsers(teamOnlyUsers);
           setDepartments(dData);
       }
+      
+      const snaps: Record<string, LedgerSnapshot> = {};
+      for (const u of finalUsers) {
+          snaps[u.id] = await LedgerSnapshotService.getSnapshot('teamMember', u.id);
+      }
+      setSnapshots(snaps);
+      setUsers(finalUsers);
       
       setLoading(false);
   };
 
   useEffect(() => { loadData(); }, [user]);
+  
+  useEffect(() => {
+    const handleLedgerUpdate = () => {
+        loadData();
+    };
+    window.addEventListener('ledgerUpdated', handleLedgerUpdate);
+    return () => window.removeEventListener('ledgerUpdated', handleLedgerUpdate);
+  }, [user]);
 
   // Paste Image Logic (Only active if modal is open AND user can manage)
   useEffect(() => {
@@ -167,15 +184,18 @@ const TeamView = () => {
           return;
       }
 
-      if(window.confirm('آیا مطمئن هستید؟ کاربر حذف و دسترسی قطع خواهد شد.')) {
-          try {
-            await api.users.delete(id, user!.id);
-            setUsers(prev => [...prev.filter(u => u.id !== id)]);
-            showToast('کاربر با موفقیت حذف شد', 'success');
-          } catch(err) {
-            showToast('خطا در حذف کاربر', 'error');
+      confirmAction({
+          description: 'آیا مطمئن هستید؟ کاربر حذف و دسترسی قطع خواهد شد.',
+          onConfirm: async () => {
+              try {
+                await api.users.delete(id, user!.id);
+                setUsers(prev => [...prev.filter(u => u.id !== id)]);
+                showToast('کاربر با موفقیت حذف شد', 'success');
+              } catch(err) {
+                showToast('خطا در حذف کاربر', 'error');
+              }
           }
-      }
+      });
   };
 
   const handleDeleteDept = async (e: React.MouseEvent, id: string) => {
@@ -188,17 +208,20 @@ const TeamView = () => {
           return;
       }
 
-      if(window.confirm('دپارتمان حذف شود؟ اعضای آن «بدون دپارتمان» خواهند شد.')) {
-          try {
-            await api.departments.delete(id, user!.id);
-            setDepartments(prev => [...prev.filter(d => d.id !== id)]);
-            setUsers(prev => prev.map(u => u.departmentId === id ? {...u, departmentId: undefined} : u));
-            if(activeTab === id) setActiveTab('All');
-            showToast('دپارتمان حذف شد', 'success');
-          } catch(err) {
-            showToast('خطا در حذف دپارتمان', 'error');
+      confirmAction({
+          description: 'دپارتمان حذف شود؟ اعضای آن «بدون دپارتمان» خواهند شد.',
+          onConfirm: async () => {
+              try {
+                await api.departments.delete(id, user!.id);
+                setDepartments(prev => [...prev.filter(d => d.id !== id)]);
+                setUsers(prev => prev.map(u => u.departmentId === id ? {...u, departmentId: undefined} : u));
+                if(activeTab === id) setActiveTab('All');
+                showToast('دپارتمان حذف شد', 'success');
+              } catch(err) {
+                showToast('خطا در حذف دپارتمان', 'error');
+              }
           }
-      }
+      });
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

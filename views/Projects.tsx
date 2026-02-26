@@ -1,19 +1,21 @@
 
 import React, { useState, useEffect, useContext } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
-import { Project, ProjectStatus, Client, User, PaymentMethod, UserRole, Notification, Transaction, TransactionType, FinanceCategory, Invoice, TransactionStatus } from '../types';
+import { AuthContext } from '../AuthContext';
+import { Project, ProjectStatus, Client, User, PaymentMethod, UserRole, Notification, Transaction, TransactionType, FinanceCategory, Invoice, TransactionStatus, LedgerSnapshot } from '../types';
+import { LedgerSnapshotService } from '../services/ledger';
 import { generateId, toPersianDigits, formatCurrency, formatJalali, getStatusColor, calculateShare } from '../utils';
 import { Plus, Filter, Calendar, DollarSign, Edit, Trash, Users, Bell, TrendingUp, TrendingDown, Wallet, PieChart, FileText, Link } from 'lucide-react';
 import { Modal, CurrencyInput, JalaliDatePicker } from '../components/Shared';
 
 const ProjectsView = () => {
-  const { user, showToast } = useContext(AuthContext);
+  const { user, showToast, confirmAction } = useContext(AuthContext);
   const [projects, setProjects] = useState<Project[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]); // New: For P&L Calc
   const [invoices, setInvoices] = useState<Invoice[]>([]); // New: For Invoice Linking
+  const [snapshots, setSnapshots] = useState<Record<string, LedgerSnapshot>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -63,6 +65,12 @@ const ProjectsView = () => {
         scopedProjects = pData.filter(p => p.members?.includes(user.id));
     }
     
+    const snaps: Record<string, LedgerSnapshot> = {};
+    for (const p of scopedProjects) {
+        snaps[p.id] = await LedgerSnapshotService.getSnapshot('project', p.id);
+    }
+    
+    setSnapshots(snaps);
     setProjects(scopedProjects);
     setClients(cData);
     setUsers(uData);
@@ -72,6 +80,14 @@ const ProjectsView = () => {
   };
 
   useEffect(() => { loadData(); }, [user]); // Re-load on user change
+  
+  useEffect(() => {
+    const handleLedgerUpdate = () => {
+        loadData();
+    };
+    window.addEventListener('ledgerUpdated', handleLedgerUpdate);
+    return () => window.removeEventListener('ledgerUpdated', handleLedgerUpdate);
+  }, [user]);
 
   // --- AUTOMATED COMMISSION LOGIC ---
   const handleCommissionLogic = async (project: Project, oldProject?: Project) => {
@@ -231,15 +247,18 @@ const ProjectsView = () => {
         return;
     }
 
-    if (window.confirm('آیا مطمئن هستید؟ پروژه حذف خواهد شد.')) {
-      try {
-        await api.projects.delete(id, user!.id);
-        setProjects(prev => [...prev.filter(p => p.id !== id)]);
-        showToast('پروژه حذف شد', 'success');
-      } catch(err) {
-        showToast('خطا در حذف پروژه', 'error');
-      }
-    }
+    confirmAction({
+        description: 'آیا مطمئن هستید؟ پروژه حذف خواهد شد.',
+        onConfirm: async () => {
+          try {
+            await api.projects.delete(id, user!.id);
+            setProjects(prev => [...prev.filter(p => p.id !== id)]);
+            showToast('پروژه حذف شد', 'success');
+          } catch(err) {
+            showToast('خطا در حذف پروژه', 'error');
+          }
+        }
+    });
   };
 
   const toggleMember = (userId: string) => {
@@ -255,31 +274,10 @@ const ProjectsView = () => {
 
   // --- P&L CALCULATOR HELPER (FIXED BUG #1) ---
   const calculatePnL = (projectId: string) => {
-      // Rule: Must be 'Approved' to count towards Actual P&L.
-      // Rule: Exclude 'Cancelled'.
-      // Fix: Include transactions linked via Invoice even if projectId is missing on transaction
-      const linkedTransactions = transactions.filter(t => {
-          if (t.status !== 'Approved') return false;
-          
-          // Direct Link
-          if (t.projectId === projectId) return true;
-          
-          // Indirect Link via Invoice
-          if (t.invoiceId) {
-              const inv = invoices.find(i => i.id === t.invoiceId);
-              if (inv && inv.projectId === projectId) return true;
-          }
-          
-          return false;
-      });
-
-      const income = linkedTransactions
-          .filter(t => t.type === TransactionType.Income)
-          .reduce((sum, t) => sum + t.amount, 0);
-
-      const expense = linkedTransactions
-          .filter(t => t.type === TransactionType.Expense)
-          .reduce((sum, t) => sum + t.amount, 0);
+      const snapshot = snapshots[projectId];
+      
+      const income = snapshot?.totalIncomeConfirmed || 0;
+      const expense = snapshot?.totalExpenseConfirmed || 0;
 
       // --- COMPUTED COMMISSION ---
       const project = projects.find(p => p.id === projectId);

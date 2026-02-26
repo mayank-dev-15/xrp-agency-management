@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useContext } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { User, Message, ChatThread } from '../types';
-import { Send, Image as ImageIcon, Mic, MoreVertical, Search, Phone, Video, MessageSquare, Users, Megaphone, Trash2, Lock, Globe } from 'lucide-react';
+import { Send, Image as ImageIcon, Mic, MoreVertical, Search, Phone, Video, MessageSquare, Users, Megaphone, Trash2, Lock, Globe, Plus, X } from 'lucide-react';
 import { formatJalaliShort } from '../utils';
 
 const MessagesView = () => {
-  const { user } = useContext(AuthContext);
+  const { user, confirmAction } = useContext(AuthContext);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -15,11 +15,14 @@ const MessagesView = () => {
   const [inputMsg, setInputMsg] = useState('');
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
 
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
   useEffect(() => {
       const load = async () => {
           const t = await api.messages.getThreads();
           const u = await api.users.getAll();
-          setThreads(t);
+          setThreads(t.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
           setUsers(u);
       };
       load();
@@ -30,6 +33,14 @@ const MessagesView = () => {
           api.messages.getMessages(activeThreadId).then(setMessages);
           if (user) {
               api.messages.markThreadAsRead(activeThreadId, user.id);
+              // Update local read status
+              setThreads(prev => prev.map(t => {
+                  if (t.id === activeThreadId) {
+                      // This is a simplification. Ideally we'd check unread counts.
+                      return t; 
+                  }
+                  return t;
+              }));
           }
       }
   }, [activeThreadId]);
@@ -47,6 +58,15 @@ const MessagesView = () => {
       };
       await api.messages.sendMessage(msg);
       setMessages(prev => [...prev, msg]);
+      
+      // Update thread preview in sidebar
+      setThreads(prev => prev.map(t => {
+          if (t.id === activeThreadId) {
+              return { ...t, lastMessage: inputMsg, updatedAt: msg.createdAt };
+          }
+          return t;
+      }).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())); // Move to top
+      
       setInputMsg('');
   };
 
@@ -63,9 +83,10 @@ const MessagesView = () => {
               updatedAt: new Date().toISOString()
           };
           await api.messages.createThread(newThread);
-          setThreads(prev => [...prev, newThread]);
+          setThreads(prev => [newThread, ...prev]);
           setActiveThreadId(newThread.id);
       }
+      setShowNewChatModal(false);
   };
 
   const handleBroadcast = async (target: 'Team' | 'Clients') => {
@@ -87,15 +108,18 @@ const MessagesView = () => {
       e.preventDefault();
       e.stopPropagation();
       e.nativeEvent.stopImmediatePropagation();
-      if(window.confirm('آیا مطمئن هستید؟ گفتگو حذف خواهد شد.')) {
-          try {
-              await api.messages.deleteThread(id, user!.id);
-              setThreads(prev => [...prev.filter(t => t.id !== id)]);
-              if(activeThreadId === id) setActiveThreadId(null);
-          } catch(err) {
-              alert('خطا در حذف گفتگو');
+      confirmAction({
+          description: 'آیا مطمئن هستید؟ گفتگو حذف خواهد شد.',
+          onConfirm: async () => {
+              try {
+                  await api.messages.deleteThread(id, user!.id);
+                  setThreads(prev => [...prev.filter(t => t.id !== id)]);
+                  if(activeThreadId === id) setActiveThreadId(null);
+              } catch(err) {
+                  alert('خطا در حذف گفتگو');
+              }
           }
-      }
+      });
   };
 
   const getThreadName = (thread: ChatThread) => {
@@ -112,19 +136,26 @@ const MessagesView = () => {
             <div className="p-4 border-b border-gray-100 dark:border-slate-700">
                 <div className="flex justify-between items-center mb-4">
                      <h3 className="font-bold text-lg">پیام‌ها</h3>
-                     <button onClick={() => setShowBroadcastModal(!showBroadcastModal)} className="text-gray-500 hover:text-primary-600"><Megaphone size={20}/></button>
+                     <div className="flex gap-2">
+                         <button onClick={() => setShowNewChatModal(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-gray-500 hover:text-primary-600 transition" title="گفتگوی جدید">
+                             <Plus size={20}/>
+                         </button>
+                         <button onClick={() => setShowBroadcastModal(!showBroadcastModal)} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-gray-500 hover:text-primary-600 transition" title="ارسال همگانی">
+                             <Megaphone size={20}/>
+                         </button>
+                     </div>
                 </div>
                 
                 {showBroadcastModal && (
-                    <div className="mb-4 bg-gray-50 p-2 rounded-xl flex gap-2">
-                        <button onClick={() => handleBroadcast('Team')} className="flex-1 text-xs bg-white py-2 rounded-lg shadow-sm">همگانی تیم</button>
-                        <button onClick={() => handleBroadcast('Clients')} className="flex-1 text-xs bg-white py-2 rounded-lg shadow-sm">همگانی مشتری</button>
+                    <div className="mb-4 bg-gray-50 dark:bg-slate-900 p-2 rounded-xl flex gap-2 animate-in slide-in-from-top-2">
+                        <button onClick={() => handleBroadcast('Team')} className="flex-1 text-xs bg-white dark:bg-slate-800 py-2 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition">همگانی تیم</button>
+                        <button onClick={() => handleBroadcast('Clients')} className="flex-1 text-xs bg-white dark:bg-slate-800 py-2 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition">همگانی مشتری</button>
                     </div>
                 )}
 
                 <div className="relative">
                     <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
-                    <input className="w-full bg-gray-50 dark:bg-slate-900 rounded-xl py-2 pr-10 pl-4 text-sm outline-none" placeholder="جستجو..."/>
+                    <input className="w-full bg-gray-50 dark:bg-slate-900 rounded-xl py-2 pr-10 pl-4 text-sm outline-none focus:ring-1 focus:ring-primary-500/20 transition" placeholder="جستجو..."/>
                 </div>
             </div>
             
@@ -229,6 +260,51 @@ const MessagesView = () => {
                 </div>
             )}
         </div>
+
+        {/* New Chat Modal */}
+        {showNewChatModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in">
+                <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95">
+                    <div className="p-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
+                        <h3 className="font-bold text-gray-800 dark:text-white">شروع گفتگو جدید</h3>
+                        <button onClick={() => setShowNewChatModal(false)} className="text-gray-500 hover:text-red-500 transition"><X size={20}/></button>
+                    </div>
+                    <div className="p-4 border-b border-gray-100 dark:border-slate-700">
+                        <div className="relative">
+                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
+                            <input 
+                                className="w-full bg-gray-50 dark:bg-slate-900 rounded-xl py-3 pr-10 pl-4 text-sm outline-none focus:ring-1 focus:ring-primary-500/20 transition"
+                                placeholder="جستجو نام کاربر..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+                        {users.filter(u => u.id !== user?.id && (u.firstName.includes(searchTerm) || u.lastName.includes(searchTerm))).length === 0 ? (
+                            <div className="text-center text-gray-400 py-8 text-sm">کاربری یافت نشد</div>
+                        ) : (
+                            users.filter(u => u.id !== user?.id && (u.firstName.includes(searchTerm) || u.lastName.includes(searchTerm))).map(u => (
+                                <button 
+                                    key={u.id}
+                                    onClick={() => createNewThread(u.id)}
+                                    className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-xl transition text-right group"
+                                >
+                                    <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-slate-600 text-primary-600 dark:text-primary-400 flex items-center justify-center font-bold text-lg">
+                                        {u.firstName[0]}
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-gray-800 dark:text-white group-hover:text-primary-600 transition">{u.firstName} {u.lastName}</div>
+                                        <div className="text-xs text-gray-400">{u.role === 'ClientUser' ? 'مشتری' : 'عضو تیم'}</div>
+                                    </div>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

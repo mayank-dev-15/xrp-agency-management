@@ -10,6 +10,9 @@ import { initDB, api } from './services/db';
 import { User, UserRole, Task, AppSettings, PermissionKey, ToastMessage, ToastType, Notification } from './types';
 import { toPersianDigits, formatJalali, generateId, checkPermission, getIcon, DEFAULT_SIDEBAR_CONFIG, getRelativeDateLabel } from './utils';
 import { Modal, JalaliDatePicker, ToastContainer } from './components/Shared';
+import { ConfirmActionDialog } from './components/ConfirmActionDialog';
+
+import { AuthContext } from './AuthContext';
 
 // Views
 import LoginView from './views/Login';
@@ -24,26 +27,6 @@ import InvoicesView from './views/Invoices';
 import InvoiceEditor from './views/InvoiceEditor';
 import InvoicePrint from './views/InvoicePrint';
 import NotificationsView from './views/NotificationsView'; 
-
-// Contexts
-interface AuthContextType {
-  user: User | null;
-  // Preview Mode
-  previewUser: User | null;
-  setPreviewUser: (u: User | null) => void;
-  // Settings & Permissions
-  settings: AppSettings | null;
-  refreshSettings: () => Promise<void>;
-  
-  login: (u: User) => void;
-  logout: () => void;
-  loading: boolean;
-  hasPermission: (perm: PermissionKey) => boolean;
-
-  // Toast
-  showToast: (message: string, type: ToastType) => void;
-}
-const AuthContext = createContext<AuthContextType>(null!);
 
 // --- Layout Components ---
 
@@ -602,6 +585,41 @@ const App = () => {
       setToasts(prev => prev.filter(t => t.id !== id));
   };
 
+  // Global Confirm Dialog State
+  const [confirmDialog, setConfirmDialog] = useState<{
+      isOpen: boolean;
+      title: string;
+      description: string;
+      confirmText?: string;
+      isDestructive?: boolean;
+      onConfirm: () => Promise<void> | void;
+  }>({
+      isOpen: false,
+      title: '',
+      description: '',
+      onConfirm: async () => {}
+  });
+
+  const confirmAction = (options: {
+      title?: string;
+      description?: string;
+      confirmText?: string;
+      isDestructive?: boolean;
+      onConfirm: () => Promise<void> | void;
+  }) => {
+      setConfirmDialog({
+          isOpen: true,
+          title: options.title || 'حذف مورد',
+          description: options.description || 'این عمل قابل بازگشت نیست. حذف انجام شود؟',
+          confirmText: options.confirmText || 'حذف',
+          isDestructive: options.isDestructive !== undefined ? options.isDestructive : true,
+          onConfirm: async () => {
+              await options.onConfirm();
+              setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          }
+      });
+  };
+
   if (loading) return <div className="h-screen flex items-center justify-center bg-gray-50 text-gray-400">Loading XRM...</div>;
 
   // Context value swaps 'user' with impersonated user if active
@@ -615,9 +633,19 @@ const App = () => {
         hasPermission,
         previewUser, 
         setPreviewUser: handleSetPreviewUser,
-        showToast
+        showToast,
+        confirmAction
     }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <ConfirmActionDialog
+          isOpen={confirmDialog.isOpen}
+          onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+          onConfirm={confirmDialog.onConfirm}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          confirmText={confirmDialog.confirmText}
+          isDestructive={confirmDialog.isDestructive}
+      />
       <HashRouter>
         <Routes>
           <Route path="/login" element={<LoginView />} />
@@ -628,5 +656,4 @@ const App = () => {
   );
 };
 
-export { AuthContext };
 export default App;

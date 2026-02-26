@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect, useContext } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Log, User, UserRole, AppSettings, PermissionKey, SidebarItemConfig, TransactionCategoryItem } from '../types';
 import { formatJalaliShort, checkPermission, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, getIcon, toPersianDigits, generateId } from '../utils';
-import { Users, Shield, Trash2, Edit2, Save, AlertTriangle, FileText, Image as ImageIcon, PenTool, Percent, Menu, Lock, CheckCircle, XCircle, ChevronUp, ChevronDown, Eye, GripVertical, Activity, Filter, Search, FolderKanban, DollarSign, CheckSquare, Settings as SettingsIcon, Clock, Calendar, List, AlignLeft, Wallet, Plus, ArrowRight } from 'lucide-react';
+import { Users, Shield, Trash2, Edit2, Save, AlertTriangle, FileText, Image as ImageIcon, PenTool, Percent, Menu, Lock, CheckCircle, XCircle, ChevronUp, ChevronDown, Eye, GripVertical, Activity, Filter, Search, FolderKanban, DollarSign, CheckSquare, Settings as SettingsIcon, Clock, Calendar, List, AlignLeft, Wallet, Plus, ArrowRight, Archive, RotateCcw } from 'lucide-react';
 import { Modal } from '../components/Shared';
 
 const SettingsView = () => {
-  const { user, refreshSettings, hasPermission, setPreviewUser, previewUser, settings: globalSettings, showToast } = useContext(AuthContext);
+  const { user, refreshSettings, hasPermission, setPreviewUser, previewUser, settings: globalSettings, showToast, confirmAction } = useContext(AuthContext);
   const [logs, setLogs] = useState<Log[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -228,15 +228,18 @@ const SettingsView = () => {
   const deleteUser = async (e: React.MouseEvent, id: string) => {
       e.preventDefault();
       e.stopPropagation();
-      if(window.confirm('آیا مطمئن هستید؟ کاربر حذف خواهد شد.')) {
-          try {
-            await api.users.delete(id, user!.id);
-            setUsers(prev => [...prev.filter(u => u.id !== id)]);
-            showToast('کاربر حذف شد', 'success');
-          } catch(err) {
-            showToast('خطا در حذف کاربر', 'error');
+      confirmAction({
+          description: 'آیا مطمئن هستید؟ کاربر حذف خواهد شد.',
+          onConfirm: async () => {
+              try {
+                await api.users.delete(id, user!.id);
+                setUsers(prev => [...prev.filter(u => u.id !== id)]);
+                showToast('کاربر حذف شد', 'success');
+              } catch(err) {
+                showToast('خطا در حذف کاربر', 'error');
+              }
           }
-      }
+      });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, field: 'defaultLogoUrl' | 'defaultSignatureUrl') => {
@@ -281,20 +284,58 @@ const SettingsView = () => {
       }
   };
 
-  const handleCategoryDelete = async (id: string) => {
-      if (window.confirm('آیا از حذف این دسته‌بندی مطمئن هستید؟')) {
-          try {
-              const result = await api.categories.delete(id, user!.id);
-              if (result === 'deleted') {
-                  setCategories(prev => prev.filter(c => c.id !== id));
-                  showToast('دسته‌بندی به طور کامل حذف شد', 'success');
-              } else {
-                  setCategories(prev => prev.map(c => c.id === id ? { ...c, isActive: false } : c));
-                  showToast('دسته‌بندی به دلیل استفاده در تراکنش‌ها، فقط غیرفعال شد', 'info');
+  const handleCategoryDeleteClick = async (id: string) => {
+      // Check usage count before deciding action
+      const usageCount = await api.categories.getUsageCount(id);
+      
+      if (usageCount > 0) {
+          confirmAction({
+              title: 'بایگانی دسته‌بندی',
+              description: `این دسته‌بندی در ${usageCount} تراکنش استفاده شده است و نمی‌توان آن را حذف کرد. آیا می‌خواهید آن را بایگانی کنید؟`,
+              confirmText: 'بایگانی',
+              isDestructive: false,
+              onConfirm: async () => {
+                  try {
+                      const result = await api.categories.delete(id, user!.id);
+                      if (result === 'soft_deleted') {
+                          setCategories(prev => prev.map(c => c.id === id ? { ...c, isActive: false } : c));
+                          // Also update children if they exist locally
+                          setCategories(prev => prev.map(c => c.parentId === id ? { ...c, isActive: false } : c));
+                          showToast('دسته‌بندی بایگانی شد', 'success');
+                      }
+                  } catch (err) {
+                      showToast('خطا در بایگانی', 'error');
+                  }
               }
-          } catch (err) {
-              showToast('خطا در حذف دسته‌بندی', 'error');
-          }
+          });
+      } else {
+          confirmAction({
+              title: 'حذف دسته‌بندی',
+              description: 'آیا از حذف کامل این دسته‌بندی اطمینان دارید؟ این عملیات غیرقابل بازگشت است.',
+              confirmText: 'حذف کامل',
+              isDestructive: true,
+              onConfirm: async () => {
+                  try {
+                      const result = await api.categories.delete(id, user!.id);
+                      if (result === 'deleted') {
+                          setCategories(prev => prev.filter(c => c.id !== id));
+                          showToast('دسته‌بندی به طور کامل حذف شد', 'success');
+                      }
+                  } catch (err) {
+                      showToast('خطا در حذف دسته‌بندی', 'error');
+                  }
+              }
+          });
+      }
+  };
+
+  const handleRestore = async (id: string) => {
+      const cat = categories.find(c => c.id === id);
+      if (cat) {
+          const updated = { ...cat, isActive: true };
+          await api.categories.update(updated, user!.id);
+          setCategories(prev => prev.map(c => c.id === id ? updated : c));
+          showToast('دسته‌بندی بازگردانی شد', 'success');
       }
   };
 
@@ -311,6 +352,9 @@ const SettingsView = () => {
   const canViewTimeline = user?.role === UserRole.Admin || user?.role === UserRole.Manager;
   // RBAC for Accounting Tab
   const canManageAccounting = user?.role === UserRole.Admin || user?.role === UserRole.Manager;
+
+  const activeCategories = categories.filter(c => c.isActive);
+  const archivedCategories = categories.filter(c => !c.isActive);
 
   return (
     <div>
@@ -384,24 +428,21 @@ const SettingsView = () => {
                </div>
 
                <div className="space-y-3">
-                   {categories.filter(c => c.type === accType && !c.parentId).map(parent => {
-                       const children = categories.filter(c => c.parentId === parent.id);
+                   {activeCategories.filter(c => c.type === accType && !c.parentId).map(parent => {
+                       const children = activeCategories.filter(c => c.parentId === parent.id);
                        return (
-                           <div key={parent.id} className={`border rounded-2xl overflow-hidden transition-all ${parent.isActive ? 'border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/20' : 'border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-800 opacity-60'}`}>
+                           <div key={parent.id} className="border border-gray-100 dark:border-slate-700 rounded-2xl overflow-hidden bg-gray-50/50 dark:bg-slate-900/20">
                                <div className="flex justify-between items-center p-4">
                                    <div className="flex items-center gap-3">
                                        <div className={`w-2 h-8 rounded-full ${accType === 'income' ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
                                        <div>
-                                           <h4 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                                               {parent.name}
-                                               {!parent.isActive && <span className="text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded">غیرفعال</span>}
-                                           </h4>
+                                           <h4 className="font-bold text-gray-800 dark:text-white">{parent.name}</h4>
                                            <span className="text-xs text-gray-400">{toPersianDigits(children.length)} زیر‌دسته</span>
                                        </div>
                                    </div>
                                    <div className="flex gap-2">
                                        <button onClick={() => { setCatFormData(parent); setCatModalOpen(true); }} className="p-2 bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-lg hover:text-blue-600 transition shadow-sm"><Edit2 size={16}/></button>
-                                       <button onClick={() => handleCategoryDelete(parent.id)} className="p-2 bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-lg hover:text-red-600 transition shadow-sm"><Trash2 size={16}/></button>
+                                       <button onClick={() => handleCategoryDeleteClick(parent.id)} className="p-2 bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-lg hover:text-red-600 transition shadow-sm"><Trash2 size={16}/></button>
                                    </div>
                                </div>
                                
@@ -412,11 +453,11 @@ const SettingsView = () => {
                                            <div key={child.id} className="flex justify-between items-center p-3 hover:bg-gray-50 dark:hover:bg-slate-700/50 rounded-lg ml-6 border-r-2 border-gray-100 dark:border-slate-700 pr-4">
                                                <div className="flex items-center gap-2">
                                                    <div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div>
-                                                   <span className={`text-sm ${child.isActive ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 line-through'}`}>{child.name}</span>
+                                                   <span className="text-sm text-gray-700 dark:text-gray-300">{child.name}</span>
                                                </div>
                                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                    <button onClick={() => { setCatFormData(child); setCatModalOpen(true); }} className="text-gray-400 hover:text-blue-500"><Edit2 size={14}/></button>
-                                                   <button onClick={() => handleCategoryDelete(child.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={14}/></button>
+                                                   <button onClick={() => handleCategoryDeleteClick(child.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={14}/></button>
                                                </div>
                                            </div>
                                        ))}
@@ -425,12 +466,29 @@ const SettingsView = () => {
                            </div>
                        );
                    })}
-                   {categories.filter(c => c.type === accType && !c.parentId).length === 0 && (
+                   {activeCategories.filter(c => c.type === accType && !c.parentId).length === 0 && (
                        <div className="text-center py-12 text-gray-400">
                            هیچ دسته‌ای یافت نشد.
                        </div>
                    )}
                </div>
+
+               {/* Archived Section */}
+               {archivedCategories.filter(c => c.type === accType).length > 0 && (
+                   <div className="mt-8 border-t pt-6 border-gray-100 dark:border-slate-700">
+                       <h4 className="text-sm font-bold text-gray-500 mb-4 flex items-center gap-2"><Archive size={16}/> آرشیو شده‌ها</h4>
+                       <div className="space-y-2">
+                           {archivedCategories.filter(c => c.type === accType).map(c => (
+                               <div key={c.id} className="flex justify-between items-center p-3 bg-gray-100 dark:bg-slate-900 rounded-xl opacity-60 hover:opacity-100 transition">
+                                   <span className="text-sm font-medium">{c.name} {c.parentId && <span className="text-xs text-gray-400">(زیردسته)</span>}</span>
+                                   <button onClick={() => handleRestore(c.id)} className="text-blue-500 hover:bg-blue-50 p-1 rounded flex items-center gap-1 text-xs font-bold">
+                                       <RotateCcw size={14}/> بازگردانی
+                                   </button>
+                               </div>
+                           ))}
+                       </div>
+                   </div>
+               )}
            </div>
        )}
 
@@ -492,6 +550,8 @@ const SettingsView = () => {
            </div>
        )}
 
+       {/* ... (Other Tabs Access Control, User Management, Invoice, Business Rules, LogSystem remain same) ... */}
+       {/* (Keeping code concise by not repeating sections that didn't change logic, but providing full file structure) */}
        {/* --- TAB: ACCESS CONTROL (RBAC) --- */}
        {activeTab === 'Access Control' && (
            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-100 dark:border-slate-700 overflow-x-auto">
@@ -562,9 +622,6 @@ const SettingsView = () => {
                                </td>
                                <td className="p-4"><span className="bg-primary-50 text-primary-700 px-2 py-1 rounded-md text-xs">{u.role}</span></td>
                                <td className="p-4">
-                                   {/* Only allow changing if current user is Admin */}
-                                   {/* Note: This checks `user.role` which is effective user. In Impersonation mode, effective user is target user. 
-                                      If Admin is impersonating a Team Member, they won't see this select. This is correct behavior. */}
                                    {user?.role === UserRole.Admin ? (
                                        <select 
                                          value={u.role} 
@@ -579,7 +636,6 @@ const SettingsView = () => {
                                    ) : <span className="text-gray-400 text-xs">فقط مدیر کل</span>}
                                </td>
                                <td className="p-4 flex gap-2">
-                                   {/* Impersonation Button */}
                                    {user?.role === UserRole.Admin && u.id !== user.id && (
                                        <button 
                                           onClick={() => handlePreview(u)}
@@ -999,7 +1055,7 @@ const SettingsView = () => {
                        className="w-full p-3 rounded-xl border bg-gray-50 dark:bg-slate-900 dark:border-slate-700 outline-none cursor-pointer"
                    >
                        <option value="">(بدون والد - دسته اصلی)</option>
-                       {categories.filter(c => c.type === accType && !c.parentId && c.id !== catFormData.id).map(c => (
+                       {activeCategories.filter(c => c.type === accType && !c.parentId && c.id !== catFormData.id).map(c => (
                            <option key={c.id} value={c.id}>{c.name}</option>
                        ))}
                    </select>
@@ -1010,7 +1066,7 @@ const SettingsView = () => {
                    <button type="submit" className="px-6 py-2 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition">ذخیره</button>
                </div>
            </form>
-       </Modal>
+        </Modal>
     </div>
   );
 };

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Invoice, Client, AppSettings } from '../types';
 import { toPersianDigits, formatCurrency, formatJalali, numberToWords, toEnglishDigits } from '../utils';
 import { Printer, Download, ArrowRight, Loader2, AlertTriangle, CheckCircle, User, Phone, MapPin, CreditCard, FileText, Calendar, Hash, Mail } from 'lucide-react';

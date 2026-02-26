@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useContext } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Notification, NotificationType, UserRole, NotificationPriority, ManagerialBroadcast, User } from '../types';
 import { Bell, CheckCircle, Search, Filter, MessageSquare, Briefcase, FileText, CheckSquare, Settings as SettingsIcon, Trash2, ChevronLeft, Clock, Megaphone, AlertCircle, AlertTriangle, Info, Send, Users, Eye, PieChart, Calendar } from 'lucide-react';
 import { formatJalaliShort, toPersianDigits, generateId } from '../utils';

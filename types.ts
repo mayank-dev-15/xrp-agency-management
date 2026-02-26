@@ -174,6 +174,27 @@ export interface PartialPayment {
   note?: string;
 }
 
+export type LedgerScopeType = 'project' | 'teamMember' | 'client' | 'global';
+
+export interface LedgerSnapshot {
+  id: string; // e.g., "project_123", "global_all"
+  scopeType: LedgerScopeType;
+  scopeId: string; // "all" for global
+  periodStart?: string;
+  periodEnd?: string;
+  
+  totalIncomeConfirmed: number;
+  totalExpenseConfirmed: number;
+  netProfitConfirmed: number;
+  
+  breakdownByCategory?: Record<string, number>;
+  breakdownByProject?: Record<string, number>;
+  breakdownByTeamMember?: Record<string, number>;
+  
+  updatedAt: string;
+  checksum: string; // Hash of related transactions
+}
+
 export interface Transaction {
   id: string;
   
@@ -194,6 +215,7 @@ export interface Transaction {
   
   // Classification
   categoryId?: string; // Link to TransactionCategoryItem
+  subcategoryId?: string; // Optional Subcategory
 
   sourceTag?: string;
   projectId?: string;

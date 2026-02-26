@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useContext, useRef, useMemo } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Project, Client, Transaction, Task, UserRole, TransactionType, Log, User } from '../types';
 import { toPersianDigits, formatCurrency, getDailyMessage, getRelativeDateLabel, formatJalali, daysBetween, getJalaliParts } from '../utils';
 import { AreaChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, ReferenceLine, ComposedChart } from 'recharts';
@@ -790,7 +790,7 @@ const TeamMemberDashboard = ({ user, projects, tasks, users }: { user: User, pro
 const AdminDashboard = ({ clients, projects, transactions, tasks, invoices, user }: any) => {
     // ... (Existing logic)
     const navigate = useNavigate();
-    const { showToast } = useContext(AuthContext);
+    const { showToast, confirmAction } = useContext(AuthContext);
     const [recentLogs, setRecentLogs] = useState<Log[]>([]);
     const [activeTaskTab, setActiveTaskTab] = useState<'Active' | 'Done'>('Active');
     const [isEditMode, setIsEditMode] = useState(false);
@@ -818,7 +818,7 @@ const AdminDashboard = ({ clients, projects, transactions, tasks, invoices, user
     const thisMonth = new Date().getMonth();
     const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1; 
     const getMonthSum = (trans: Transaction[], type: TransactionType, targetMonth: number) => {
-        return trans.filter(t => t.type === type && new Date(t.date).getMonth() === targetMonth).reduce((sum, t) => sum + t.amount, 0);
+        return trans.filter(t => t.status === 'Approved' && t.type === type && new Date(t.date).getMonth() === targetMonth).reduce((sum, t) => sum + t.amount, 0);
     };
     const incomeThisMonth = getMonthSum(transactions, TransactionType.Income, thisMonth);
     const incomeLastMonth = getMonthSum(transactions, TransactionType.Income, lastMonth);
@@ -845,11 +845,14 @@ const AdminDashboard = ({ clients, projects, transactions, tasks, invoices, user
     const handleDeleteTask = async (e: React.MouseEvent, id: string) => {
         e.preventDefault();
         e.stopPropagation();
-        if(window.confirm('حذف تسک؟')) {
-            await api.tasks.delete(id, user.id);
-            window.dispatchEvent(new Event('taskUpdated'));
-            showToast('تسک حذف شد', 'success');
-        }
+        confirmAction({
+            description: 'آیا از حذف این تسک اطمینان دارید؟',
+            onConfirm: async () => {
+                await api.tasks.delete(id, user.id);
+                window.dispatchEvent(new Event('taskUpdated'));
+                showToast('تسک حذف شد', 'success');
+            }
+        });
     };
     const getHeroMessage = () => {
         if (healthStatus === 'Risk') return 'وضعیت بحرانی است؛ لطفاً فوراً به موارد عقب‌افتاده و ددلاین‌ها رسیدگی کنید.';

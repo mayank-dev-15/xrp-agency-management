@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { api } from '../services/db';
-import { AuthContext } from '../App';
+import { AuthContext } from '../AuthContext';
 import { Client, ClientType, Project, Transaction } from '../types';
 import { Search, Plus, Edit2, Trash2, User, Phone, Tag, Image as ImageIcon, ArrowRight, Briefcase } from 'lucide-react';
 import { generateId, formatJalaliShort, toPersianDigits, formatCurrency } from '../utils';
 import { Modal } from '../components/Shared';
 
 const ClientsView = () => {
-  const { user, showToast } = useContext(AuthContext);
+  const { user, showToast, confirmAction } = useContext(AuthContext);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -103,21 +103,24 @@ const ClientsView = () => {
       e.nativeEvent.stopImmediatePropagation();
     }
     
-    if (window.confirm('آیا از حذف این مشتری اطمینان دارید؟ (دسترسی قطع خواهد شد)')) {
-      try {
-        await api.clients.delete(id, user!.id);
-        // Force state update with new array reference
-        setClients(prev => [...prev.filter(c => c.id !== id)]);
-        showToast('مشتری با موفقیت حذف شد', 'success');
-        
-        if(selectedClient?.id === id) {
-            setSelectedClient(null);
+    confirmAction({
+        description: 'آیا از حذف این مشتری اطمینان دارید؟ (دسترسی قطع خواهد شد)',
+        onConfirm: async () => {
+          try {
+            await api.clients.delete(id, user!.id);
+            // Force state update with new array reference
+            setClients(prev => [...prev.filter(c => c.id !== id)]);
+            showToast('مشتری با موفقیت حذف شد', 'success');
+            
+            if(selectedClient?.id === id) {
+                setSelectedClient(null);
+            }
+          } catch(err) {
+            console.error(err);
+            showToast('خطا در حذف مشتری', 'error');
+          }
         }
-      } catch(err) {
-        console.error(err);
-        showToast('خطا در حذف مشتری', 'error');
-      }
-    }
+    });
   };
 
   const resetForm = () => {
