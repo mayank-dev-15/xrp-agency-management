@@ -1,12 +1,10 @@
-<div align="center">
-</div>
+# XRP
 
-XRP — An open-source AI-assisted agency management system with CRM, projects, invoices, team management, RBAC, and RTL-first UI.
-This is a Agency Managment Dashboard
+**XRP** is an open-source, AI-assisted agency management system designed for small agencies, freelancers, and service-based teams.
 
-# XRM
+# XRP
 
-**XRM** is an open-source, AI-assisted agency management system designed for small agencies, freelancers, and service-based teams.
+**XRP** is an open-source, AI-assisted agency management system designed for small agencies, freelancers, and service-based teams.
 
 It brings together CRM, project management, team management, accounting, invoices, notifications, role-based access control, and RTL-first user experience into one integrated dashboard.
 
@@ -14,7 +12,7 @@ It brings together CRM, project management, team management, accounting, invoice
 
 ---
 
-## Why XRM?
+## Why XRP?
 
 Small agencies often manage their work across many disconnected tools: spreadsheets, task managers, chat apps, invoice tools, and manual client tracking.
 
