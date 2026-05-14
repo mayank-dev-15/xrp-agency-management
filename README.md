@@ -117,6 +117,3 @@ Make sure you have Node.js installed.
 
 ```bash
 npm install
-
-
-My instagram: https://instagram.com/Mojavad_ai
