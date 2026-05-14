@@ -4,7 +4,7 @@
 # Run and deploy your AI Studio app
 This is a Agency Managment Dashboard
 
-My instagram: instagram.com/Mojavad_ai
+My instagram: https://instagram.com/Mojavad_ai
 
 ## Run Locally
 
