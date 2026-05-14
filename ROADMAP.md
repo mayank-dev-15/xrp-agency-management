@@ -1,6 +1,6 @@
 # Roadmap
 
-XRM is currently in early public development. The goal is to turn it into a useful open-source agency operating system for small teams, freelancers, and service businesses.
+XRP is currently in early public development. The goal is to turn it into a useful open-source agency operating system for small teams, freelancers, and service businesses.
 
 ---
 
