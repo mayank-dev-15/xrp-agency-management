@@ -1,4 +1,4 @@
-# Contributing to XRP
+# Contributing to XRM
 
 Thanks for your interest in contributing to XRM.
 
@@ -27,3 +27,41 @@ Install dependencies:
 
 ```bash
 npm install
+
+```
+Run the development server: 
+```
+npm run dev
+
+```
+Build the project:
+```
+npm run build
+
+```
+Contribution Guidelines
+
+Before opening a pull request:
+
+1- Make sure the project builds successfully.
+2- Keep changes focused and small.
+3- Avoid large unrelated refactors.
+4- Use clear commit messages.
+5- Explain what problem your PR solves.
+
+Suggested Commit Format
+Examples:
+```
+docs: improve README
+fix: resolve invoice print issue
+feat: add project roadmap
+refactor: clean project service layer
+
+```
+-Current Priorities
+-Documentation
+-Repository cleanup
+-Architecture improvements
+-CRM and project module stability
+-Invoice and PDF workflow improvements
+-RTL-first UI consistency
