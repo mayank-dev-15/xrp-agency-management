@@ -5,10 +5,6 @@
 # Run and deploy your AI Studio app
 This is a Agency Managment Dashboard
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/496983a9-216e-4c11-a96f-0b1821996d35
-
 ## Run Locally
 
 **Prerequisites:**  Node.js
